@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Sora", "Inter", sans-serif;
+  --font-sans: "Inter", sans-serif;
+
+  --color-primary: #012a38;
+  --color-secondary: #1d4a57;
+  --color-tertiary: #ff3300;
+  --color-neutral: #ffffff;
+  --color-surface: #f2fbfd;
+  --color-on-surface: #1d4a57;
+  --color-muted: #8fa7af;
+  --color-accent: #7ec5d4;
+  --color-success: #b8f18a;
+  --color-warning: #fff5b8;
+  --color-error: #d84c4c;
+  --color-border: #dceaf0;
+  --color-overlay: #012a3814;
+
+  --radius-none: 0px;
+  --radius-sm: 4px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 40px;
+
+  --spacing-xs: 4px;
+  --spacing-sm: 12px;
+  --spacing-md: 20px;
+  --spacing-lg: 32px;
+  --spacing-xl: 80px;
+}
+
+@layer base {
+  body {
+    @apply bg-neutral text-on-surface font-sans antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex h-[38px] items-center justify-center rounded-full bg-tertiary px-4 py-[7px] text-[12px] font-medium leading-[1.2] text-neutral transition-transform hover:scale-[1.03] active:scale-[0.98];
+  }
+  .btn-secondary {
+    @apply inline-flex h-[38px] items-center justify-center rounded-full bg-neutral px-4 py-[7px] text-[12px] font-medium leading-[1.2] text-primary ring-1 ring-inset ring-border transition-colors hover:bg-surface;
+  }
+  .btn-tertiary {
+    @apply inline-flex items-center gap-1 bg-transparent text-[12px] font-medium leading-[1.2] text-tertiary transition-opacity hover:opacity-70;
+  }
+  .chip {
+    @apply inline-flex items-center rounded-full bg-surface px-[10px] py-[4px] text-[11px] font-semibold uppercase leading-[1.15] tracking-[0.06em] text-primary;
+  }
+  .card {
+    @apply rounded-xl bg-neutral p-[22px] text-on-surface shadow-[0_20px_45px_-15px_var(--color-overlay)];
+  }
+}

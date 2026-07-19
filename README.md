@@ -16,23 +16,37 @@ Platform backend untuk mengelola subscription SaaS. Dibangun dengan Golang (Echo
 ## Struktur Project
 
 ```
-├── cmd/
-│   ├── api/         # HTTP API server
-│   └── worker/      # Billing worker
-├── internal/
-│   ├── config/      # Konfigurasi dari .env
-│   ├── database/    # Koneksi PostgreSQL
-│   ├── handlers/    # HTTP handlers
-│   ├── middlewares/  # JWT, error, logging
-│   ├── models/      # Database & DTO structs
-│   ├── repositories/ # Database queries
-│   ├── routes/      # Route registrations
-│   ├── services/    # Business logic
-│   └── utils/       # Helpers (response, jwt, password)
-├── migrations/      # Goose SQL migrations
-├── docs/            # Dokumentasi
-└── pkg/
-    └── payment/     # Payment provider interface
+├── Backend/
+│   ├── cmd/
+│   │   ├── api/         # HTTP API server
+│   │   └── worker/      # Billing worker
+│   ├── internal/
+│   │   ├── config/      # Konfigurasi dari .env
+│   │   ├── database/    # Koneksi PostgreSQL
+│   │   ├── handlers/    # HTTP handlers, dikelompokkan per domain
+│   │   │   ├── identity/     # auth, business
+│   │   │   ├── catalog/      # service, product, plan, add-on
+│   │   │   ├── coupon/
+│   │   │   ├── customer/
+│   │   │   ├── subscription/
+│   │   │   ├── billing/      # placeholder - invoice & recurring billing
+│   │   │   ├── payment/      # placeholder - payment gateway webhook
+│   │   │   ├── revenue/      # placeholder - revenue dashboard
+│   │   │   └── audit/        # placeholder - audit log
+│   │   ├── middlewares/  # JWT, error, logging
+│   │   ├── models/      # Database structs & per-domain DTO files
+│   │   ├── repositories/ # Database queries, dikelompokkan per domain (sama seperti handlers)
+│   │   ├── routes/      # Route registrations, satu file per domain
+│   │   ├── services/    # Business logic, dikelompokkan per domain (sama seperti handlers)
+│   │   └── utils/       # Helpers (response, pagination, jwt, password)
+│   ├── pkg/
+│   │   └── payment/     # Payment provider interface
+│   ├── go.mod / go.sum
+│   ├── Makefile
+│   └── docker-compose.yml
+├── Frontend/         # Aplikasi frontend (Vite)
+├── Migrations/       # Goose SQL migrations
+└── docs/             # Dokumentasi
 ```
 
 ## Cara Setup
@@ -41,7 +55,7 @@ Platform backend untuk mengelola subscription SaaS. Dibangun dengan Golang (Echo
 
 ```bash
 git clone <repo-url>
-cd pay-langgan
+cd pay-langgan/Backend
 ```
 
 ### 2. Copy .env
