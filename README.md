@@ -321,7 +321,3 @@ newman run postman/PAY-LANGGAN.postman_collection.json \
 ## Environment Variables
 
 Semua konfigurasi melalui file `.env`. Lihat `.env.example` untuk daftar lengkap.
-
-## Lisensi
-
-MIT
