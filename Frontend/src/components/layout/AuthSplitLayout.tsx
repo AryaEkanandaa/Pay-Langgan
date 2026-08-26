@@ -1,8 +1,6 @@
 import type { ReactNode } from 'react'
 import Logo from '../ui/Logo'
-import GlassPanel from '../ui/GlassPanel'
 import Starburst from '../ui/Starburst'
-import { statusRows } from '../../data/subscriptionPreview'
 
 interface AuthSplitLayoutProps {
   title: string
@@ -51,28 +49,6 @@ export default function AuthSplitLayout({
             </div>
           </div>
         </div>
-
-        {/* <GlassPanel className="absolute bottom-6 right-8 hidden w-56 border-white/60 bg-white/95 shadow-xl md:block">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-            Status Langganan
-          </p>
-          <div className="mt-3 space-y-2.5">
-            {statusRows.slice(0, 2).map((row) => (
-              <div key={row.label} className="space-y-1">
-                <div className="flex items-center justify-between text-[12px]">
-                  <span className="text-body">{row.label}</span>
-                  <span className="font-semibold text-ink">{row.value}%</span>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-surface">
-                  <div
-                    className={`h-1.5 rounded-full ${row.className}`}
-                    style={{ width: `${row.value}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </GlassPanel> */}
       </div>
     </div>
   )

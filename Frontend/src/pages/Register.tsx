@@ -31,7 +31,7 @@ export default function Register() {
         password,
       })
       setAuth(result)
-      navigate('/')
+      navigate('/dashboard')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Terjadi kesalahan, coba lagi.')
     } finally {

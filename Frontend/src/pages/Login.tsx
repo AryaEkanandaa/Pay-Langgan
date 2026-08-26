@@ -25,7 +25,7 @@ export default function Login() {
     try {
       const result = await login({ email, password })
       setAuth(result, rememberMe)
-      navigate('/')
+      navigate('/dashboard')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Terjadi kesalahan, coba lagi.')
     } finally {

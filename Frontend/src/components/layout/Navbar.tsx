@@ -27,9 +27,12 @@ export default function Navbar() {
         <div className="flex items-center gap-3">
           {auth ? (
             <>
-              <span className="hidden text-[14px] font-semibold text-ink sm:inline">
+              <Link
+                to="/dashboard"
+                className="hidden text-[14px] font-semibold text-ink sm:inline"
+              >
                 Halo, {auth.user.name.split(' ')[0]}
-              </span>
+              </Link>
               <button
                 onClick={logout}
                 className={`${buttonBaseClass} ${buttonVariantClass.secondary}`}
