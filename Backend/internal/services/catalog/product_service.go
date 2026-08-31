@@ -1,9 +1,11 @@
 package catalog
 
 import (
+	"fmt"
 	"pay-langgan/internal/models"
 	"pay-langgan/internal/repositories/catalog"
 	"pay-langgan/internal/utils"
+	"strings"
 )
 
 type ProductService struct {
@@ -40,11 +42,15 @@ func (s *ProductService) GetByID(id int, businessID string) (*models.Product, er
 }
 
 func (s *ProductService) Create(businessID string, req models.CreateProductRequest) (*models.Product, error) {
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", utils.ErrBadRequest)
+	}
+	if req.ServiceID < 1 {
 		return nil, utils.ErrBadRequest
 	}
-	if req.ServiceID == 0 {
-		return nil, utils.ErrBadRequest
+	if len(req.Name) > 100 || !validProductStatus(req.Status) {
+		return nil, fmt.Errorf("%w: invalid product data", utils.ErrBadRequest)
 	}
 
 	service, err := s.serviceRepo.FindByIDAndBusinessID(req.ServiceID, businessID)
@@ -85,10 +91,17 @@ func (s *ProductService) Update(id int, businessID string, req models.UpdateProd
 	}
 
 	if req.Name != "" {
+		req.Name = strings.TrimSpace(req.Name)
+		if req.Name == "" || len(req.Name) > 100 {
+			return nil, fmt.Errorf("%w: invalid product name", utils.ErrBadRequest)
+		}
 		product.Name = req.Name
 	}
 	product.Description = req.Description
 	if req.Status != "" {
+		if !validProductStatus(req.Status) {
+			return nil, fmt.Errorf("%w: invalid product status", utils.ErrBadRequest)
+		}
 		product.Status = req.Status
 	}
 	if req.Meta != nil {
@@ -100,6 +113,10 @@ func (s *ProductService) Update(id int, businessID string, req models.UpdateProd
 		return nil, err
 	}
 	return product, nil
+}
+
+func validProductStatus(status string) bool {
+	return status == "" || status == "active" || status == "inactive" || status == "archived"
 }
 
 func (s *ProductService) Delete(id int, businessID string) error {

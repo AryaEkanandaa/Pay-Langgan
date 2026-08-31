@@ -1,9 +1,11 @@
 package customer
 
 import (
+	"fmt"
 	"pay-langgan/internal/models"
 	"pay-langgan/internal/repositories/customer"
 	"pay-langgan/internal/utils"
+	"strings"
 )
 
 type CustomerService struct {
@@ -36,8 +38,12 @@ func (s *CustomerService) GetByID(id int, businessID string) (*models.Customer, 
 }
 
 func (s *CustomerService) Create(businessID string, req models.CreateCustomerRequest) (*models.Customer, error) {
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		return nil, utils.ErrBadRequest
+		return nil, fmt.Errorf("%w: name is required", utils.ErrBadRequest)
+	}
+	if len(req.Name) > 100 {
+		return nil, fmt.Errorf("%w: name must be at most 100 characters", utils.ErrBadRequest)
 	}
 
 	c := &models.Customer{
@@ -65,6 +71,10 @@ func (s *CustomerService) Update(id int, businessID string, req models.UpdateCus
 	}
 
 	if req.Name != "" {
+		req.Name = strings.TrimSpace(req.Name)
+		if req.Name == "" || len(req.Name) > 100 {
+			return nil, fmt.Errorf("%w: invalid customer name", utils.ErrBadRequest)
+		}
 		c.Name = req.Name
 	}
 	if req.Email != nil {

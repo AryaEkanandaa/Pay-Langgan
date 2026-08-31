@@ -41,13 +41,17 @@ func (r *SubscriptionAddOnRepository) Upsert(tx *sqlx.Tx, item *models.Subscript
 	return nil
 }
 
-func (r *SubscriptionAddOnRepository) DeleteBySubscriptionIDAndAddOnID(tx *sqlx.Tx, subscriptionID, addOnID int) error {
+func (r *SubscriptionAddOnRepository) DeleteBySubscriptionIDAndAddOnID(tx *sqlx.Tx, subscriptionID, addOnID int) (bool, error) {
 	query := `DELETE FROM subscription_add_ons WHERE subscription_id = $1 AND add_on_id = $2`
-	_, err := tx.Exec(query, subscriptionID, addOnID)
+	result, err := tx.Exec(query, subscriptionID, addOnID)
 	if err != nil {
-		return fmt.Errorf("delete subscription add-on: %w", err)
+		return false, fmt.Errorf("delete subscription add-on: %w", err)
 	}
-	return nil
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("check deleted subscription add-on: %w", err)
+	}
+	return rows > 0, nil
 }
 
 func (r *SubscriptionAddOnRepository) FindBySubscriptionID(subscriptionID int) ([]models.SubscriptionAddOn, error) {

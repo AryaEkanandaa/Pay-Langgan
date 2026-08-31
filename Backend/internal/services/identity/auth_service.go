@@ -2,6 +2,8 @@ package identity
 
 import (
 	"fmt"
+	"net/mail"
+	"strings"
 
 	"pay-langgan/internal/config"
 	"pay-langgan/internal/models"
@@ -22,12 +24,21 @@ func NewAuthService(authRepo *identity.AuthRepository, cfg *config.Config) *Auth
 }
 
 func (s *AuthService) Signup(req models.SignupRequest) (*models.AuthResponse, error) {
+	req.BusinessName = strings.TrimSpace(req.BusinessName)
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	if req.BusinessName == "" || req.Name == "" || req.Email == "" || req.Password == "" {
-		return nil, utils.ErrBadRequest
+		return nil, fmt.Errorf("%w: required fields are missing", utils.ErrBadRequest)
+	}
+	if len(req.BusinessName) > 100 || len(req.Name) > 100 || len(req.Email) > 100 {
+		return nil, fmt.Errorf("%w: input exceeds maximum length", utils.ErrBadRequest)
+	}
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		return nil, fmt.Errorf("%w: invalid email", utils.ErrBadRequest)
 	}
 
 	if len(req.Password) < 6 {
-		return nil, fmt.Errorf("password must be at least 6 characters")
+		return nil, fmt.Errorf("%w: password must be at least 6 characters", utils.ErrBadRequest)
 	}
 
 	existingUser, err := s.authRepo.FindUserByEmail(req.Email)
@@ -49,7 +60,7 @@ func (s *AuthService) Signup(req models.SignupRequest) (*models.AuthResponse, er
 	}
 
 	user := &models.User{
-		BusinessID: business.ID,
+		BusinessID: &business.ID,
 		Name:       req.Name,
 		Email:      req.Email,
 		Password:   hashedPassword,
@@ -90,8 +101,12 @@ func (s *AuthService) Signup(req models.SignupRequest) (*models.AuthResponse, er
 }
 
 func (s *AuthService) Login(req models.LoginRequest) (*models.LoginResponse, error) {
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	if req.Email == "" || req.Password == "" {
-		return nil, utils.ErrBadRequest
+		return nil, fmt.Errorf("%w: email and password are required", utils.ErrBadRequest)
+	}
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		return nil, fmt.Errorf("%w: invalid email", utils.ErrBadRequest)
 	}
 
 	user, err := s.authRepo.FindUserByEmail(req.Email)
@@ -106,19 +121,33 @@ func (s *AuthService) Login(req models.LoginRequest) (*models.LoginResponse, err
 		return nil, utils.ErrUnauthorized
 	}
 
-	business, err := s.authRepo.FindBusinessByID(user.BusinessID)
-	if err != nil {
-		return nil, fmt.Errorf("find business: %w", err)
-	}
-	if business == nil || business.Deleted {
+	if !models.IsValidRole(user.Role) {
 		return nil, utils.ErrUnauthorized
+	}
+
+	var business *models.Business
+	if user.BusinessID != nil {
+		business, err = s.authRepo.FindBusinessByID(*user.BusinessID)
+		if err != nil {
+			return nil, fmt.Errorf("find business: %w", err)
+		}
+		if business == nil || business.Deleted || !models.IsTenantRole(user.Role) {
+			return nil, utils.ErrUnauthorized
+		}
+	} else if user.Role != string(models.RoleSuperAdmin) {
+		return nil, utils.ErrUnauthorized
+	}
+
+	businessID := ""
+	if business != nil {
+		businessID = business.ID
 	}
 
 	token, err := utils.GenerateToken(
 		s.cfg.JWTSecret,
 		s.cfg.JWTExpiresIn,
 		user.ID,
-		business.ID,
+		businessID,
 		user.Email,
 		user.Role,
 	)
@@ -130,7 +159,7 @@ func (s *AuthService) Login(req models.LoginRequest) (*models.LoginResponse, err
 		Token: token,
 		User: models.UserDTO{
 			ID:         user.ID,
-			BusinessID: business.ID,
+			BusinessID: businessID,
 			Name:       user.Name,
 			Email:      user.Email,
 			Role:       user.Role,
@@ -139,6 +168,15 @@ func (s *AuthService) Login(req models.LoginRequest) (*models.LoginResponse, err
 }
 
 func (s *AuthService) GetMe(userID int, businessID, email, role string) (*models.MeResponse, error) {
+	if role == string(models.RoleSuperAdmin) && businessID == "" {
+		return &models.MeResponse{
+			UserID:     userID,
+			BusinessID: businessID,
+			Email:      email,
+			Role:       role,
+		}, nil
+	}
+
 	business, err := s.authRepo.FindBusinessByID(businessID)
 	if err != nil {
 		return nil, fmt.Errorf("find business: %w", err)

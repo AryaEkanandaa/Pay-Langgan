@@ -63,7 +63,7 @@ func (h *CustomerHandler) Create(c echo.Context) error {
 	cust, err := h.customerService.Create(businessID, req)
 	if err != nil {
 		if errors.Is(err, utils.ErrBadRequest) {
-			return utils.BadRequest(c, "name is required")
+			return utils.BadRequest(c, err.Error())
 		}
 		return utils.InternalError(c, "failed to create customer")
 	}
@@ -87,6 +87,9 @@ func (h *CustomerHandler) Update(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, utils.ErrNotFound) {
 			return utils.NotFound(c, "customer not found")
+		}
+		if errors.Is(err, utils.ErrBadRequest) {
+			return utils.BadRequest(c, err.Error())
 		}
 		return utils.InternalError(c, "failed to update customer")
 	}

@@ -21,6 +21,9 @@ func ParsePagination(c echo.Context) (page, limit int, search string) {
 			limit = v
 		}
 	}
+	if limit > 100 {
+		limit = 100
+	}
 
 	search = c.QueryParam("search")
 	return

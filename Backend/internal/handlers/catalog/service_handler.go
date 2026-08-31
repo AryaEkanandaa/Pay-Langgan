@@ -63,7 +63,7 @@ func (h *ServiceHandler) Create(c echo.Context) error {
 	service, err := h.serviceService.Create(businessID, req)
 	if err != nil {
 		if errors.Is(err, utils.ErrBadRequest) {
-			return utils.BadRequest(c, "name is required")
+			return utils.BadRequest(c, err.Error())
 		}
 		return utils.InternalError(c, "failed to create service")
 	}

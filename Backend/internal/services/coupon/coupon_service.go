@@ -3,6 +3,8 @@ package coupon
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"pay-langgan/internal/models"
 	"pay-langgan/internal/repositories/coupon"
@@ -17,18 +19,18 @@ func NewCouponService(couponRepo *coupon.CouponRepository) *CouponService {
 	return &CouponService{couponRepo: couponRepo}
 }
 
-func (s *CouponService) GetAll(page, limit int, search string) ([]models.Coupon, int, error) {
+func (s *CouponService) GetAll(businessID string, page, limit int, search string) ([]models.Coupon, int, error) {
 	if page < 1 {
 		page = 1
 	}
 	if limit < 1 || limit > 100 {
 		limit = 10
 	}
-	return s.couponRepo.FindAll(page, limit, search)
+	return s.couponRepo.FindAll(businessID, page, limit, search)
 }
 
-func (s *CouponService) GetByID(id int) (*models.Coupon, error) {
-	c, err := s.couponRepo.FindByID(id)
+func (s *CouponService) GetByID(id int, businessID string) (*models.Coupon, error) {
+	c, err := s.couponRepo.FindByIDAndBusinessID(id, businessID)
 	if err != nil {
 		return nil, err
 	}
@@ -38,21 +40,13 @@ func (s *CouponService) GetByID(id int) (*models.Coupon, error) {
 	return c, nil
 }
 
-func (s *CouponService) Create(req models.CreateCouponRequest) (*models.Coupon, error) {
-	if req.Code == "" {
-		return nil, utils.ErrBadRequest
-	}
-	if req.DiscountType != "percentage" && req.DiscountType != "fixed" {
-		return nil, utils.ErrBadRequest
-	}
-	if req.DiscountValue <= 0 {
-		return nil, utils.ErrBadRequest
-	}
-	if req.DiscountType == "percentage" && req.DiscountValue > 100 {
-		return nil, fmt.Errorf("discount value cannot exceed 100 for percentage type")
+func (s *CouponService) Create(businessID string, req models.CreateCouponRequest) (*models.Coupon, error) {
+	req.Code = strings.TrimSpace(req.Code)
+	if err := validateCoupon(req.Code, req.DiscountType, req.DiscountValue, req.MaxUsage, req.ExpiresAt); err != nil {
+		return nil, err
 	}
 
-	existing, err := s.couponRepo.FindByCode(req.Code)
+	existing, err := s.couponRepo.FindByCode(businessID, req.Code)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +55,7 @@ func (s *CouponService) Create(req models.CreateCouponRequest) (*models.Coupon, 
 	}
 
 	c := &models.Coupon{
+		BusinessID:    businessID,
 		Code:          req.Code,
 		DiscountType:  req.DiscountType,
 		DiscountValue: req.DiscountValue,
@@ -78,8 +73,8 @@ func (s *CouponService) Create(req models.CreateCouponRequest) (*models.Coupon, 
 	return c, nil
 }
 
-func (s *CouponService) Update(id int, req models.UpdateCouponRequest) (*models.Coupon, error) {
-	c, err := s.couponRepo.FindByID(id)
+func (s *CouponService) Update(id int, businessID string, req models.UpdateCouponRequest) (*models.Coupon, error) {
+	c, err := s.couponRepo.FindByIDAndBusinessID(id, businessID)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +83,9 @@ func (s *CouponService) Update(id int, req models.UpdateCouponRequest) (*models.
 	}
 
 	if req.Code != "" {
+		req.Code = strings.TrimSpace(req.Code)
 		if req.Code != c.Code {
-			existing, err := s.couponRepo.FindByCode(req.Code)
+			existing, err := s.couponRepo.FindByCode(businessID, req.Code)
 			if err != nil {
 				return nil, err
 			}
@@ -106,9 +102,6 @@ func (s *CouponService) Update(id int, req models.UpdateCouponRequest) (*models.
 		c.DiscountType = req.DiscountType
 	}
 	if req.DiscountValue > 0 {
-		if req.DiscountType == "percentage" && req.DiscountValue > 100 {
-			return nil, fmt.Errorf("discount value cannot exceed 100 for percentage type")
-		}
 		c.DiscountValue = req.DiscountValue
 	}
 	if req.MaxUsage != nil {
@@ -116,6 +109,12 @@ func (s *CouponService) Update(id int, req models.UpdateCouponRequest) (*models.
 	}
 	if req.ExpiresAt != nil {
 		c.ExpiresAt = req.ExpiresAt
+	}
+	if err := validateCoupon(c.Code, c.DiscountType, c.DiscountValue, c.MaxUsage, c.ExpiresAt); err != nil {
+		return nil, err
+	}
+	if len(c.Code) > 50 || (c.MaxUsage != nil && *c.MaxUsage < c.UsedCount) {
+		return nil, fmt.Errorf("%w: invalid coupon limits", utils.ErrBadRequest)
 	}
 
 	err = s.couponRepo.Update(c)
@@ -128,8 +127,8 @@ func (s *CouponService) Update(id int, req models.UpdateCouponRequest) (*models.
 	return c, nil
 }
 
-func (s *CouponService) Delete(id int) error {
-	c, err := s.couponRepo.FindByID(id)
+func (s *CouponService) Delete(id int, businessID string) error {
+	c, err := s.couponRepo.FindByIDAndBusinessID(id, businessID)
 	if err != nil {
 		return err
 	}
@@ -137,5 +136,30 @@ func (s *CouponService) Delete(id int) error {
 		return utils.ErrNotFound
 	}
 
-	return s.couponRepo.Delete(id)
+	return s.couponRepo.Delete(id, businessID)
+}
+
+func validateCoupon(code, discountType string, discountValue float64, maxUsage *int, expiresAt *time.Time) error {
+	if code == "" {
+		return utils.ErrBadRequest
+	}
+	if len(code) > 50 {
+		return fmt.Errorf("%w: code must be at most 50 characters", utils.ErrBadRequest)
+	}
+	if discountType != "percentage" && discountType != "fixed" {
+		return utils.ErrBadRequest
+	}
+	if discountValue <= 0 {
+		return utils.ErrBadRequest
+	}
+	if discountType == "percentage" && discountValue > 100 {
+		return utils.ErrBadRequest
+	}
+	if maxUsage != nil && *maxUsage < 1 {
+		return utils.ErrBadRequest
+	}
+	if expiresAt != nil && expiresAt.IsZero() {
+		return utils.ErrBadRequest
+	}
+	return nil
 }

@@ -63,7 +63,7 @@ func (h *ProductHandler) Create(c echo.Context) error {
 	product, err := h.productService.Create(businessID, req)
 	if err != nil {
 		if errors.Is(err, utils.ErrBadRequest) {
-			return utils.BadRequest(c, "name and service_id are required")
+			return utils.BadRequest(c, err.Error())
 		}
 		if errors.Is(err, utils.ErrNotFound) {
 			return utils.NotFound(c, "service not found")
@@ -90,6 +90,9 @@ func (h *ProductHandler) Update(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, utils.ErrNotFound) {
 			return utils.NotFound(c, "product not found")
+		}
+		if errors.Is(err, utils.ErrBadRequest) {
+			return utils.BadRequest(c, err.Error())
 		}
 		return utils.InternalError(c, "failed to update product")
 	}

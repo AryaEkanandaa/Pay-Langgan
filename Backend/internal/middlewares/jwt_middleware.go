@@ -3,8 +3,8 @@ package middlewares
 import (
 	"strings"
 
-	"pay-langgan/internal/utils"
 	"github.com/labstack/echo/v4"
+	"pay-langgan/internal/utils"
 )
 
 type Skipper func(c echo.Context) bool

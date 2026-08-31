@@ -1,9 +1,11 @@
 package catalog
 
 import (
+	"fmt"
 	"pay-langgan/internal/models"
 	"pay-langgan/internal/repositories/catalog"
 	"pay-langgan/internal/utils"
+	"strings"
 )
 
 type PlanService struct {
@@ -40,10 +42,11 @@ func (s *PlanService) GetByID(id int, businessID string) (*models.Plan, error) {
 }
 
 func (s *PlanService) Create(businessID string, req models.CreatePlanRequest) (*models.Plan, error) {
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		return nil, utils.ErrBadRequest
+		return nil, fmt.Errorf("%w: name is required", utils.ErrBadRequest)
 	}
-	if req.ProductID == 0 {
+	if req.ProductID < 1 {
 		return nil, utils.ErrBadRequest
 	}
 	if req.Price <= 0 {
@@ -54,6 +57,9 @@ func (s *PlanService) Create(businessID string, req models.CreatePlanRequest) (*
 	}
 	if req.TrialDays < 0 {
 		return nil, utils.ErrBadRequest
+	}
+	if len(req.Name) > 100 {
+		return nil, fmt.Errorf("%w: name must be at most 100 characters", utils.ErrBadRequest)
 	}
 
 	product, err := s.productRepo.FindByIDAndBusinessID(req.ProductID, businessID)
@@ -90,6 +96,10 @@ func (s *PlanService) Update(id int, businessID string, req models.UpdatePlanReq
 	}
 
 	if req.Name != "" {
+		req.Name = strings.TrimSpace(req.Name)
+		if req.Name == "" || len(req.Name) > 100 {
+			return nil, fmt.Errorf("%w: invalid plan name", utils.ErrBadRequest)
+		}
 		plan.Name = req.Name
 	}
 	if req.Price > 0 {
@@ -102,6 +112,9 @@ func (s *PlanService) Update(id int, businessID string, req models.UpdatePlanReq
 		plan.BillingCycle = req.BillingCycle
 	}
 	if req.TrialDays != nil {
+		if *req.TrialDays < 0 {
+			return nil, utils.ErrBadRequest
+		}
 		plan.TrialDays = *req.TrialDays
 	}
 	if req.Meta != nil {

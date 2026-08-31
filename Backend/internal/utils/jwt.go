@@ -32,6 +32,9 @@ func GenerateToken(secret string, expiresIn time.Duration, userID int, businessI
 
 func ParseToken(secret, tokenString string) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, jwt.ErrSignatureInvalid
+		}
 		return []byte(secret), nil
 	})
 	if err != nil {

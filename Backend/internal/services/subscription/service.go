@@ -2,11 +2,14 @@ package subscription
 
 import (
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"pay-langgan/internal/database"
 	"pay-langgan/internal/models"
 	"pay-langgan/internal/repositories/audit"
+	billingrepo "pay-langgan/internal/repositories/billing"
 	"pay-langgan/internal/repositories/catalog"
 	"pay-langgan/internal/repositories/coupon"
 	"pay-langgan/internal/repositories/customer"
@@ -26,6 +29,7 @@ type SubscriptionService struct {
 	addOnRepo    *catalog.AddOnRepository
 	couponRepo   *coupon.CouponRepository
 	customerRepo *customer.CustomerRepository
+	invoiceRepo  *billingrepo.InvoiceRepository
 }
 
 func NewSubscriptionService(
@@ -40,7 +44,12 @@ func NewSubscriptionService(
 	addOnRepo *catalog.AddOnRepository,
 	couponRepo *coupon.CouponRepository,
 	customerRepo *customer.CustomerRepository,
+	invoiceRepos ...*billingrepo.InvoiceRepository,
 ) *SubscriptionService {
+	var invoiceRepo *billingrepo.InvoiceRepository
+	if len(invoiceRepos) > 0 {
+		invoiceRepo = invoiceRepos[0]
+	}
 	return &SubscriptionService{
 		db:           db,
 		subRepo:      subRepo,
@@ -53,6 +62,7 @@ func NewSubscriptionService(
 		addOnRepo:    addOnRepo,
 		couponRepo:   couponRepo,
 		customerRepo: customerRepo,
+		invoiceRepo:  invoiceRepo,
 	}
 }
 
@@ -75,12 +85,18 @@ func (s *SubscriptionService) GetDetail(id int, businessID string) (*models.Subs
 		return nil, utils.ErrNotFound
 	}
 
-	return s.buildDetailResponse(sub)
+	return s.buildDetailResponse(sub, businessID)
 }
 
 func (s *SubscriptionService) Create(businessID string, userID int, req models.CreateSubscriptionRequest) (*models.SubscriptionDetailResponse, error) {
-	if req.CustomerID == 0 || req.PlanID == 0 {
+	req.CouponCode = strings.TrimSpace(req.CouponCode)
+	if req.CustomerID < 1 || req.PlanID < 1 {
 		return nil, utils.ErrBadRequest
+	}
+	for _, addOn := range req.AddOns {
+		if addOn.AddOnID < 1 || addOn.Quantity < 1 {
+			return nil, utils.ErrBadRequest
+		}
 	}
 
 	cust, err := s.customerRepo.FindByIDAndBusinessID(req.CustomerID, businessID)
@@ -106,6 +122,7 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 		StartDate:  now,
 		Meta:       req.Meta,
 	}
+	invoiceAmount := plan.Price
 
 	if plan.TrialDays > 0 {
 		sub.Status = "trial"
@@ -128,9 +145,6 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 	}
 
 	for _, a := range req.AddOns {
-		if a.Quantity < 1 {
-			continue
-		}
 		addOn, err := s.addOnRepo.FindByIDAndBusinessID(a.AddOnID, businessID)
 		if err != nil {
 			return nil, fmt.Errorf("find add-on %d: %w", a.AddOnID, err)
@@ -147,10 +161,11 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 		if err := s.subAddOnRepo.Upsert(tx, item); err != nil {
 			return nil, fmt.Errorf("upsert add-on %d: %w", a.AddOnID, err)
 		}
+		invoiceAmount += addOn.Price * float64(a.Quantity)
 	}
 
 	if req.CouponCode != "" {
-		coup, err := s.couponRepo.FindByCode(req.CouponCode)
+		coup, err := s.couponRepo.FindByCode(businessID, req.CouponCode)
 		if err != nil {
 			return nil, fmt.Errorf("find coupon: %w", err)
 		}
@@ -164,6 +179,19 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 			return nil, fmt.Errorf("coupon usage limit exceeded")
 		}
 
+		discountAmount := 0.0
+		subtotalAmount := invoiceAmount
+		switch coup.DiscountType {
+		case "percentage":
+			discountAmount = subtotalAmount * (coup.DiscountValue / 100)
+		case "fixed":
+			discountAmount = coup.DiscountValue
+		}
+		if discountAmount > subtotalAmount {
+			discountAmount = subtotalAmount
+		}
+		invoiceAmount = subtotalAmount - math.Floor(discountAmount*100)/100
+
 		subCpn := &models.SubscriptionCoupon{
 			SubscriptionID: sub.ID,
 			CouponID:       coup.ID,
@@ -172,9 +200,21 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 			return nil, fmt.Errorf("apply coupon: %w", err)
 		}
 
-		coup.UsedCount++
-		if err := s.couponRepo.UpdateTx(tx, coup); err != nil {
+		if err := s.couponRepo.IncrementUsageTx(tx, coup.ID, businessID); err != nil {
 			return nil, fmt.Errorf("update coupon usage: %w", err)
+		}
+	}
+
+	if s.invoiceRepo != nil {
+		invoice := &models.Invoice{
+			SubscriptionID: sub.ID,
+			InvoiceNumber:  utils.GenerateInvoiceNumber(),
+			Amount:         math.Floor(invoiceAmount*100) / 100,
+			Status:         "pending",
+			DueDate:        sub.NextBillingDate,
+		}
+		if err := s.invoiceRepo.Create(tx, invoice); err != nil {
+			return nil, fmt.Errorf("create invoice: %w", err)
 		}
 	}
 
@@ -194,5 +234,5 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return s.buildDetailResponse(sub)
+	return s.buildDetailResponse(sub, businessID)
 }

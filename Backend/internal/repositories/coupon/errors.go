@@ -6,6 +6,7 @@ import (
 )
 
 var ErrDuplicate = errors.New("duplicate entry")
+var ErrUsageLimit = errors.New("coupon usage limit reached")
 
 func isPGUniqueViolation(err error) bool {
 	if err == nil {

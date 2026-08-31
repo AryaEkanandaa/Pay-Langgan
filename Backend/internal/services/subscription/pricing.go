@@ -3,6 +3,7 @@ package subscription
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"pay-langgan/internal/models"
@@ -26,6 +27,7 @@ func NewSubscriptionPricingService(planRepo *catalog.PlanRepository, addOnRepo *
 }
 
 func (s *SubscriptionPricingService) CalculatePreview(businessID string, req models.SubscriptionPreviewRequest) (*models.SubscriptionPreviewResponse, error) {
+	req.CouponCode = strings.TrimSpace(req.CouponCode)
 	plan, err := s.planRepo.FindByIDAndBusinessID(req.PlanID, businessID)
 	if err != nil {
 		return nil, err
@@ -47,8 +49,8 @@ func (s *SubscriptionPricingService) CalculatePreview(businessID string, req mod
 
 	var addOnAmount float64
 	for _, a := range req.AddOns {
-		if a.Quantity < 1 {
-			continue
+		if a.AddOnID < 1 || a.Quantity < 1 {
+			return nil, utils.ErrBadRequest
 		}
 		addOn, err := s.addOnRepo.FindByIDAndBusinessID(a.AddOnID, businessID)
 		if err != nil {
@@ -72,7 +74,7 @@ func (s *SubscriptionPricingService) CalculatePreview(businessID string, req mod
 
 	var discountAmount float64
 	if req.CouponCode != "" {
-		coup, err := s.couponRepo.FindByCode(req.CouponCode)
+		coup, err := s.couponRepo.FindByCode(businessID, req.CouponCode)
 		if err != nil {
 			return nil, err
 		}

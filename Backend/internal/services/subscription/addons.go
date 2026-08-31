@@ -8,7 +8,7 @@ import (
 )
 
 func (s *SubscriptionService) AddAddOn(id int, businessID string, userID int, addOnID, quantity int) (*models.SubscriptionDetailResponse, error) {
-	if quantity < 1 {
+	if addOnID < 1 || quantity < 1 {
 		return nil, utils.ErrBadRequest
 	}
 
@@ -59,7 +59,7 @@ func (s *SubscriptionService) AddAddOn(id int, businessID string, userID int, ad
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return s.buildDetailResponse(sub)
+	return s.buildDetailResponse(sub, businessID)
 }
 
 func (s *SubscriptionService) RemoveAddOn(id int, businessID string, userID int, addOnID int) (*models.SubscriptionDetailResponse, error) {
@@ -77,8 +77,12 @@ func (s *SubscriptionService) RemoveAddOn(id int, businessID string, userID int,
 	}
 	defer tx.Rollback()
 
-	if err := s.subAddOnRepo.DeleteBySubscriptionIDAndAddOnID(tx, sub.ID, addOnID); err != nil {
+	removed, err := s.subAddOnRepo.DeleteBySubscriptionIDAndAddOnID(tx, sub.ID, addOnID)
+	if err != nil {
 		return nil, fmt.Errorf("delete add-on link: %w", err)
+	}
+	if !removed {
+		return nil, utils.ErrNotFound
 	}
 
 	entityID := fmt.Sprintf("%d", sub.ID)
@@ -97,5 +101,5 @@ func (s *SubscriptionService) RemoveAddOn(id int, businessID string, userID int,
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return s.buildDetailResponse(sub)
+	return s.buildDetailResponse(sub, businessID)
 }

@@ -1,9 +1,11 @@
 package catalog
 
 import (
+	"fmt"
 	"pay-langgan/internal/models"
 	"pay-langgan/internal/repositories/catalog"
 	"pay-langgan/internal/utils"
+	"strings"
 )
 
 type ServiceService struct {
@@ -36,8 +38,12 @@ func (s *ServiceService) GetByID(id int, businessID string) (*models.Service, er
 }
 
 func (s *ServiceService) Create(businessID string, req models.CreateServiceRequest) (*models.Service, error) {
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		return nil, utils.ErrBadRequest
+		return nil, fmt.Errorf("%w: name is required", utils.ErrBadRequest)
+	}
+	if len(req.Name) > 100 {
+		return nil, fmt.Errorf("%w: name must be at most 100 characters", utils.ErrBadRequest)
 	}
 
 	service := &models.Service{
@@ -64,6 +70,13 @@ func (s *ServiceService) Update(id int, businessID string, req models.UpdateServ
 	}
 
 	if req.Name != "" {
+		req.Name = strings.TrimSpace(req.Name)
+		if req.Name == "" {
+			return nil, fmt.Errorf("%w: name cannot be blank", utils.ErrBadRequest)
+		}
+		if len(req.Name) > 100 {
+			return nil, fmt.Errorf("%w: name must be at most 100 characters", utils.ErrBadRequest)
+		}
 		service.Name = req.Name
 	}
 	service.Description = req.Description

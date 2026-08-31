@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"pay-langgan/internal/models"
@@ -9,6 +10,10 @@ import (
 )
 
 func (s *SubscriptionService) ApplyCoupon(id int, businessID string, userID int, couponCode string) (*models.SubscriptionDetailResponse, error) {
+	couponCode = strings.TrimSpace(couponCode)
+	if couponCode == "" {
+		return nil, utils.ErrBadRequest
+	}
 	sub, err := s.subRepo.FindByIDAndBusinessID(id, businessID)
 	if err != nil {
 		return nil, fmt.Errorf("find subscription: %w", err)
@@ -17,7 +22,7 @@ func (s *SubscriptionService) ApplyCoupon(id int, businessID string, userID int,
 		return nil, utils.ErrNotFound
 	}
 
-	coup, err := s.couponRepo.FindByCode(couponCode)
+	coup, err := s.couponRepo.FindByCode(businessID, couponCode)
 	if err != nil {
 		return nil, fmt.Errorf("find coupon: %w", err)
 	}
@@ -54,8 +59,7 @@ func (s *SubscriptionService) ApplyCoupon(id int, businessID string, userID int,
 		return nil, fmt.Errorf("apply coupon: %w", err)
 	}
 
-	coup.UsedCount++
-	if err := s.couponRepo.UpdateTx(tx, coup); err != nil {
+	if err := s.couponRepo.IncrementUsageTx(tx, coup.ID, businessID); err != nil {
 		return nil, fmt.Errorf("update coupon usage: %w", err)
 	}
 
@@ -75,7 +79,7 @@ func (s *SubscriptionService) ApplyCoupon(id int, businessID string, userID int,
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return s.buildDetailResponse(sub)
+	return s.buildDetailResponse(sub, businessID)
 }
 
 func (s *SubscriptionService) RemoveCoupon(id int, businessID string, userID int, couponID int) (*models.SubscriptionDetailResponse, error) {
@@ -87,7 +91,7 @@ func (s *SubscriptionService) RemoveCoupon(id int, businessID string, userID int
 		return nil, utils.ErrNotFound
 	}
 
-	coup, err := s.couponRepo.FindByID(couponID)
+	coup, err := s.couponRepo.FindByIDAndBusinessID(couponID, businessID)
 	if err != nil {
 		return nil, fmt.Errorf("find coupon: %w", err)
 	}
@@ -101,15 +105,16 @@ func (s *SubscriptionService) RemoveCoupon(id int, businessID string, userID int
 	}
 	defer tx.Rollback()
 
-	if err := s.subCpnRepo.RemoveBySubscriptionIDAndCouponID(tx, sub.ID, couponID); err != nil {
+	removed, err := s.subCpnRepo.RemoveBySubscriptionIDAndCouponID(tx, sub.ID, couponID)
+	if err != nil {
 		return nil, fmt.Errorf("remove coupon link: %w", err)
 	}
+	if !removed {
+		return nil, utils.ErrNotFound
+	}
 
-	if coup.UsedCount > 0 {
-		coup.UsedCount--
-		if err := s.couponRepo.UpdateTx(tx, coup); err != nil {
-			return nil, fmt.Errorf("update coupon usage: %w", err)
-		}
+	if err := s.couponRepo.DecrementUsageTx(tx, coup.ID, businessID); err != nil {
+		return nil, fmt.Errorf("update coupon usage: %w", err)
 	}
 
 	entityID := fmt.Sprintf("%d", sub.ID)
@@ -128,5 +133,5 @@ func (s *SubscriptionService) RemoveCoupon(id int, businessID string, userID int
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return s.buildDetailResponse(sub)
+	return s.buildDetailResponse(sub, businessID)
 }

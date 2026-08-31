@@ -29,13 +29,17 @@ func (r *SubscriptionCouponRepository) Apply(tx *sqlx.Tx, item *models.Subscript
 	return nil
 }
 
-func (r *SubscriptionCouponRepository) RemoveBySubscriptionIDAndCouponID(tx *sqlx.Tx, subscriptionID, couponID int) error {
+func (r *SubscriptionCouponRepository) RemoveBySubscriptionIDAndCouponID(tx *sqlx.Tx, subscriptionID, couponID int) (bool, error) {
 	query := `DELETE FROM subscription_coupons WHERE subscription_id = $1 AND coupon_id = $2`
-	_, err := tx.Exec(query, subscriptionID, couponID)
+	result, err := tx.Exec(query, subscriptionID, couponID)
 	if err != nil {
-		return fmt.Errorf("remove subscription coupon: %w", err)
+		return false, fmt.Errorf("remove subscription coupon: %w", err)
 	}
-	return nil
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("check removed subscription coupon: %w", err)
+	}
+	return rows > 0, nil
 }
 
 func (r *SubscriptionCouponRepository) FindBySubscriptionID(subscriptionID int) ([]models.SubscriptionCoupon, error) {

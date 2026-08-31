@@ -8,7 +8,7 @@ import (
 	"pay-langgan/internal/models"
 )
 
-func (s *SubscriptionService) buildDetailResponse(sub *models.Subscription) (*models.SubscriptionDetailResponse, error) {
+func (s *SubscriptionService) buildDetailResponse(sub *models.Subscription, businessID string) (*models.SubscriptionDetailResponse, error) {
 	resp := &models.SubscriptionDetailResponse{
 		ID:         sub.ID,
 		CustomerID: sub.CustomerID,
@@ -101,7 +101,7 @@ func (s *SubscriptionService) buildDetailResponse(sub *models.Subscription) (*mo
 			ID:       sc.ID,
 			CouponID: sc.CouponID,
 		}
-		coup, _ := s.couponRepo.FindByID(sc.CouponID)
+		coup, _ := s.couponRepo.FindByIDAndBusinessID(sc.CouponID, businessID)
 		if coup != nil {
 			coupResp.Code = coup.Code
 			coupResp.DiscountType = coup.DiscountType

@@ -57,7 +57,7 @@ func (s *SubscriptionService) Cancel(id int, businessID string, userID int, reas
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return s.buildDetailResponse(sub)
+	return s.buildDetailResponse(sub, businessID)
 }
 
 func (s *SubscriptionService) Pause(id int, businessID string, userID int, reason string) (*models.SubscriptionDetailResponse, error) {
@@ -107,7 +107,7 @@ func (s *SubscriptionService) Pause(id int, businessID string, userID int, reaso
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return s.buildDetailResponse(sub)
+	return s.buildDetailResponse(sub, businessID)
 }
 
 func (s *SubscriptionService) Resume(id int, businessID string, userID int) (*models.SubscriptionDetailResponse, error) {
@@ -155,5 +155,5 @@ func (s *SubscriptionService) Resume(id int, businessID string, userID int) (*mo
 		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return s.buildDetailResponse(sub)
+	return s.buildDetailResponse(sub, businessID)
 }

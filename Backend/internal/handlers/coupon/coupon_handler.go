@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strconv"
 
+	"pay-langgan/internal/middlewares"
 	"pay-langgan/internal/models"
 	"pay-langgan/internal/services/coupon"
 	"pay-langgan/internal/utils"
@@ -20,9 +21,10 @@ func NewCouponHandler(couponService *coupon.CouponService) *CouponHandler {
 }
 
 func (h *CouponHandler) List(c echo.Context) error {
+	businessID := middlewares.GetBusinessID(c)
 	page, limit, search := utils.ParsePagination(c)
 
-	coupons, total, err := h.couponService.GetAll(page, limit, search)
+	coupons, total, err := h.couponService.GetAll(businessID, page, limit, search)
 	if err != nil {
 		return utils.InternalError(c, "failed to retrieve coupons")
 	}
@@ -33,12 +35,13 @@ func (h *CouponHandler) List(c echo.Context) error {
 }
 
 func (h *CouponHandler) GetByID(c echo.Context) error {
+	businessID := middlewares.GetBusinessID(c)
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		return utils.BadRequest(c, "invalid coupon id")
 	}
 
-	coup, err := h.couponService.GetByID(id)
+	coup, err := h.couponService.GetByID(id, businessID)
 	if err != nil {
 		if errors.Is(err, utils.ErrNotFound) {
 			return utils.NotFound(c, "coupon not found")
@@ -50,12 +53,13 @@ func (h *CouponHandler) GetByID(c echo.Context) error {
 }
 
 func (h *CouponHandler) Create(c echo.Context) error {
+	businessID := middlewares.GetBusinessID(c)
 	var req models.CreateCouponRequest
 	if err := c.Bind(&req); err != nil {
 		return utils.BadRequest(c, "invalid request body")
 	}
 
-	coup, err := h.couponService.Create(req)
+	coup, err := h.couponService.Create(businessID, req)
 	if err != nil {
 		if errors.Is(err, utils.ErrBadRequest) {
 			return utils.BadRequest(c, err.Error())
@@ -70,6 +74,7 @@ func (h *CouponHandler) Create(c echo.Context) error {
 }
 
 func (h *CouponHandler) Update(c echo.Context) error {
+	businessID := middlewares.GetBusinessID(c)
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		return utils.BadRequest(c, "invalid coupon id")
@@ -80,7 +85,7 @@ func (h *CouponHandler) Update(c echo.Context) error {
 		return utils.BadRequest(c, "invalid request body")
 	}
 
-	coup, err := h.couponService.Update(id, req)
+	coup, err := h.couponService.Update(id, businessID, req)
 	if err != nil {
 		if errors.Is(err, utils.ErrNotFound) {
 			return utils.NotFound(c, "coupon not found")
@@ -98,12 +103,13 @@ func (h *CouponHandler) Update(c echo.Context) error {
 }
 
 func (h *CouponHandler) Delete(c echo.Context) error {
+	businessID := middlewares.GetBusinessID(c)
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		return utils.BadRequest(c, "invalid coupon id")
 	}
 
-	err = h.couponService.Delete(id)
+	err = h.couponService.Delete(id, businessID)
 	if err != nil {
 		if errors.Is(err, utils.ErrNotFound) {
 			return utils.NotFound(c, "coupon not found")

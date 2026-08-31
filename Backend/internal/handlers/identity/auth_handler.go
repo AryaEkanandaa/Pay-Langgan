@@ -55,7 +55,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, utils.ErrBadRequest):
-			return utils.BadRequest(c, "email and password are required")
+			return utils.BadRequest(c, err.Error())
 		case errors.Is(err, utils.ErrUnauthorized):
 			return utils.Unauthorized(c, "invalid email or password")
 		default:

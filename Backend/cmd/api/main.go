@@ -8,22 +8,28 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"pay-langgan/internal/config"
 	"pay-langgan/internal/database"
+	billinghttp "pay-langgan/internal/handlers/billing"
 	cataloghttp "pay-langgan/internal/handlers/catalog"
 	couponhttp "pay-langgan/internal/handlers/coupon"
 	customerhttp "pay-langgan/internal/handlers/customer"
 	identityhttp "pay-langgan/internal/handlers/identity"
+	revenuehttp "pay-langgan/internal/handlers/revenue"
 	subscriptionhttp "pay-langgan/internal/handlers/subscription"
 	"pay-langgan/internal/repositories/audit"
+	billingrepo "pay-langgan/internal/repositories/billing"
 	catalogrepo "pay-langgan/internal/repositories/catalog"
 	couponrepo "pay-langgan/internal/repositories/coupon"
 	customerrepo "pay-langgan/internal/repositories/customer"
 	identityrepo "pay-langgan/internal/repositories/identity"
+	revenuerepo "pay-langgan/internal/repositories/revenue"
 	subscriptionrepo "pay-langgan/internal/repositories/subscription"
 	"pay-langgan/internal/routes"
+	billingsvc "pay-langgan/internal/services/billing"
 	catalogsvc "pay-langgan/internal/services/catalog"
 	couponsvc "pay-langgan/internal/services/coupon"
 	customersvc "pay-langgan/internal/services/customer"
 	identitysvc "pay-langgan/internal/services/identity"
+	revenuesvc "pay-langgan/internal/services/revenue"
 	subscriptionsvc "pay-langgan/internal/services/subscription"
 )
 
@@ -41,6 +47,7 @@ func main() {
 	authHandler := identityhttp.NewAuthHandler(authService)
 
 	businessRepo := identityrepo.NewBusinessRepository(db)
+	userRepo := identityrepo.NewUserRepository(db)
 	serviceRepo := catalogrepo.NewServiceRepository(db)
 	productRepo := catalogrepo.NewProductRepository(db)
 	planRepo := catalogrepo.NewPlanRepository(db)
@@ -51,7 +58,9 @@ func main() {
 	subAddOnRepo := subscriptionrepo.NewSubscriptionAddOnRepository(db)
 	subCpnRepo := subscriptionrepo.NewSubscriptionCouponRepository(db)
 	auditLogRepo := audit.NewAuditLogRepository(db)
+	invoiceRepo := billingrepo.NewInvoiceRepository(db)
 	businessService := identitysvc.NewBusinessService(businessRepo)
+	userService := identitysvc.NewUserService(userRepo)
 	serviceService := catalogsvc.NewServiceService(serviceRepo)
 	productService := catalogsvc.NewProductService(productRepo, serviceRepo)
 	planService := catalogsvc.NewPlanService(planRepo, productRepo)
@@ -59,9 +68,13 @@ func main() {
 	couponService := couponsvc.NewCouponService(couponRepo)
 	customerService := customersvc.NewCustomerService(customerRepo)
 	subscriptionPricingService := subscriptionsvc.NewSubscriptionPricingService(planRepo, addOnRepo, couponRepo)
-	subscriptionService := subscriptionsvc.NewSubscriptionService(db, subRepo, subAddOnRepo, subCpnRepo, auditLogRepo, planRepo, productRepo, serviceRepo, addOnRepo, couponRepo, customerRepo)
+	subscriptionService := subscriptionsvc.NewSubscriptionService(db, subRepo, subAddOnRepo, subCpnRepo, auditLogRepo, planRepo, productRepo, serviceRepo, addOnRepo, couponRepo, customerRepo, invoiceRepo)
+	dashboardRepo := revenuerepo.NewDashboardRepository(db)
+	dashboardService := revenuesvc.NewDashboardService(dashboardRepo)
+	invoiceService := billingsvc.NewInvoiceService(db, invoiceRepo)
 
 	businessHandler := identityhttp.NewBusinessHandler(businessService)
+	userHandler := identityhttp.NewUserHandler(userService)
 	serviceHandler := cataloghttp.NewServiceHandler(serviceService)
 	productHandler := cataloghttp.NewProductHandler(productService)
 	planHandler := cataloghttp.NewPlanHandler(planService)
@@ -69,6 +82,8 @@ func main() {
 	couponHandler := couponhttp.NewCouponHandler(couponService)
 	customerHandler := customerhttp.NewCustomerHandler(customerService)
 	subscriptionHandler := subscriptionhttp.NewSubscriptionHandler(subscriptionService, subscriptionPricingService)
+	dashboardHandler := revenuehttp.NewDashboardHandler(dashboardService)
+	invoiceHandler := billinghttp.NewInvoiceHandler(invoiceService)
 
 	e := echo.New()
 
@@ -90,6 +105,7 @@ func main() {
 	routes.RegisterRoutes(e, &routes.AllHandlers{
 		Auth:         authHandler,
 		Business:     businessHandler,
+		User:         userHandler,
 		Service:      serviceHandler,
 		Product:      productHandler,
 		Plan:         planHandler,
@@ -97,6 +113,8 @@ func main() {
 		Coupon:       couponHandler,
 		Customer:     customerHandler,
 		Subscription: subscriptionHandler,
+		Invoice:      invoiceHandler,
+		Dashboard:    dashboardHandler,
 	}, cfg.JWTSecret)
 
 	addr := fmt.Sprintf(":%s", cfg.AppPort)
