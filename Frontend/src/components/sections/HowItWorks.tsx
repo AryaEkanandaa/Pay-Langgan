@@ -1,11 +1,14 @@
 import Badge from '../ui/Badge'
 import { steps } from '../../data/howItWorks'
+import useLandingReveal from '../../hooks/useLandingReveal'
 
 export default function HowItWorks() {
+  const sectionRef = useLandingReveal<HTMLElement>()
+
   return (
-    <section id="cara-kerja" className="py-20 md:py-28">
+    <section ref={sectionRef} id="cara-kerja" className="landing-section flex items-center py-20 md:py-28">
       <div className="mx-auto max-w-6xl px-5">
-        <div className="mx-auto max-w-xl text-center">
+        <div className="landing-reveal mx-auto max-w-xl text-center">
           <Badge>Cara Kerja</Badge>
           <h2 className="mt-4 font-display text-[32px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-[36px]">
             Tiga langkah untuk mulai mengelola langganan.
@@ -18,7 +21,11 @@ export default function HowItWorks() {
 
         <div className="mt-14 grid gap-8 md:grid-cols-3">
           {steps.map((step, index) => (
-            <div key={step.number} className="relative">
+            <div
+              key={step.number}
+              className="landing-reveal relative"
+              style={{ transitionDelay: `${100 + index * 90}ms` }}
+            >
               <span className="font-display text-[40px] font-bold text-brand/20">
                 {step.number}
               </span>

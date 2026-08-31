@@ -1,12 +1,15 @@
 import Badge from '../ui/Badge'
 import GlassPanel from '../ui/GlassPanel'
 import { features } from '../../data/features'
+import useLandingReveal from '../../hooks/useLandingReveal'
 
 export default function Features() {
+  const sectionRef = useLandingReveal<HTMLElement>()
+
   return (
-    <section id="fitur" className="py-20 md:py-28">
+    <section ref={sectionRef} id="fitur" className="landing-section flex items-center py-20 md:py-28">
       <div className="mx-auto max-w-6xl px-5">
-        <div className="max-w-xl">
+        <div className="landing-reveal max-w-xl">
           <Badge>Fitur</Badge>
           <h2 className="mt-4 font-display text-[32px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-[36px]">
             Semua yang dibutuhkan untuk mengelola langganan.
@@ -17,9 +20,13 @@ export default function Features() {
           </p>
         </div>
 
-        <div className="mt-12 grid gap-5 md:grid-cols-6">
-          {features.map((feature) => (
-            <GlassPanel key={feature.title} className={feature.span}>
+        <div className="mt-12 grid gap-5 md:grid-cols-12">
+          {features.map((feature, index) => (
+            <GlassPanel
+              key={feature.title}
+              className={`landing-reveal ${feature.span}`}
+              style={{ transitionDelay: `${80 + index * 65}ms` }}
+            >
               <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-brand/[0.12]">
                 <span className="h-2.5 w-2.5 rounded-sm bg-brand" />
               </div>

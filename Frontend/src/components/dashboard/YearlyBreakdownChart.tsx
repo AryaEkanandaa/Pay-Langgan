@@ -1,5 +1,7 @@
 import { Bar, BarChart, ResponsiveContainer, XAxis } from 'recharts'
-import type { YearlyBreakdownPoint } from '../../data/dashboardMock'
+import type { DashboardSummary } from '../../lib/api'
+
+type YearlyBreakdownPoint = DashboardSummary['yearly_breakdown'][number]
 
 interface YearlyBreakdownChartProps {
   data: YearlyBreakdownPoint[]

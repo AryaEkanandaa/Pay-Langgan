@@ -12,3 +12,10 @@ export const billingCycleLabel: Record<string, string> = {
   weekly: 'Mingguan',
   daily: 'Harian',
 }
+
+export const subscriptionStatusLabel: Record<string, string> = {
+  trial: 'Trial',
+  active: 'Aktif',
+  paused: 'Dijeda',
+  cancelled: 'Dibatalkan',
+}

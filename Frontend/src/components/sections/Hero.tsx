@@ -4,12 +4,15 @@ import Button from '../ui/Button'
 import GlassPanel from '../ui/GlassPanel'
 import { buttonBaseClass, buttonVariantClass } from '../ui/buttonStyles'
 import { statusRows, invoiceExample } from '../../data/subscriptionPreview'
+import useLandingReveal from '../../hooks/useLandingReveal'
 
 export default function Hero() {
+  const sectionRef = useLandingReveal<HTMLElement>()
+
   return (
-    <section className="relative overflow-hidden">
+    <section ref={sectionRef} className="landing-section relative flex items-center overflow-hidden">
       <div className="mx-auto grid max-w-6xl gap-16 px-5 pb-20 pt-16 md:grid-cols-2 md:items-center md:pb-32 md:pt-24">
-        <div>
+        <div className="landing-reveal">
           <Badge>Manajemen Langganan SaaS</Badge>
 
           <h1 className="mt-5 font-display text-[40px] font-bold leading-[1.08] tracking-[-0.03em] text-ink md:text-[48px]">
@@ -18,7 +21,7 @@ export default function Hero() {
 
           <p className="mt-6 max-w-md text-[18px] leading-relaxed text-body">
             PayLanggan menyatukan katalog produk, data pelanggan, dan siklus
-            hidup langganan — dari trial, aktif, jeda, hingga batal — dalam
+            hidup langganan dari trial, aktif, jeda, hingga batal dalam
             satu platform multi-tenant untuk tim yang menjual layanan
             berbasis langganan.
           </p>
@@ -33,7 +36,7 @@ export default function Hero() {
           </div>
         </div>
 
-        <div className="relative">
+        <div className="landing-reveal relative" style={{ transitionDelay: '120ms' }}>
           <GlassPanel className="mx-auto max-w-sm space-y-5">
             <div className="flex items-center justify-between">
               <p className="text-[13px] font-semibold text-muted">Status Langganan</p>

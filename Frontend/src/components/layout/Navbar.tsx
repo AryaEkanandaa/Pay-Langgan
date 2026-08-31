@@ -3,6 +3,7 @@ import Logo from '../ui/Logo'
 import { buttonBaseClass, buttonVariantClass } from '../ui/buttonStyles'
 import { navLinks } from '../../data/navigation'
 import { useAuth } from '../../context/AuthContext'
+import ThemeToggle from '../ui/ThemeToggle'
 
 export default function Navbar() {
   const { auth, logout } = useAuth()
@@ -25,6 +26,7 @@ export default function Navbar() {
         </nav>
 
         <div className="flex items-center gap-3">
+          <ThemeToggle />
           {auth ? (
             <>
               <Link

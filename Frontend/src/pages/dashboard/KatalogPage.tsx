@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import DashboardPageHeader from '../../components/dashboard/DashboardPageHeader'
 import ServicesTab from './catalog/ServicesTab'
 import ProductsTab from './catalog/ProductsTab'
@@ -15,7 +15,14 @@ const tabs = [
 type TabKey = (typeof tabs)[number]['key']
 
 export default function KatalogPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>('layanan')
+  const location = useLocation()
+  const navigate = useNavigate()
+  const hashTab = location.hash.replace('#', '') as TabKey
+  const activeTab = tabs.some((tab) => tab.key === hashTab) ? hashTab : 'layanan'
+
+  function selectTab(tab: TabKey) {
+    navigate(`#${tab}`)
+  }
 
   return (
     <div>
@@ -26,7 +33,7 @@ export default function KatalogPage() {
           <button
             key={tab.key}
             type="button"
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => selectTab(tab.key)}
             className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition-colors ${
               activeTab === tab.key ? 'bg-brand text-white' : 'text-body hover:text-ink'
             }`}

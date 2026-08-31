@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 
 export default function CTA() {
   return (
-    <section id="tentang" className="px-5 py-4">
+    <div className="landing-reveal w-full px-5 py-4">
       <div className="glass-dark mx-auto max-w-6xl rounded-3xl px-8 py-16 text-center md:px-16">
         <h2 className="font-display text-[28px] font-bold leading-tight tracking-[-0.02em] text-neutral md:text-[34px]">
           Siap merapikan langganan dan penagihan bisnis Anda?
@@ -26,6 +26,6 @@ export default function CTA() {
           </a>
         </div>
       </div>
-    </section>
+    </div>
   )
 }

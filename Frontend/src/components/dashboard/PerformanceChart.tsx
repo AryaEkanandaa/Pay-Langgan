@@ -8,7 +8,9 @@ import {
   type TooltipContentProps,
 } from 'recharts'
 import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent'
-import type { MonthlyPerformancePoint } from '../../data/dashboardMock'
+import type { DashboardSummary } from '../../lib/api'
+
+type MonthlyPerformancePoint = DashboardSummary['monthly_performance'][number]
 
 interface PerformanceChartProps {
   data: MonthlyPerformancePoint[]
