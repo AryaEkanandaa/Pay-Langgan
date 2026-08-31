@@ -11,7 +11,7 @@ Platform backend untuk mengelola subscription SaaS. Dibangun dengan Golang (Echo
 - **goose** - Database migration
 - **JWT** - Authentication
 - **bcrypt** - Password hashing
-- **Midtrans** - Payment gateway (sandbox/mock mode)
+  - **Xendit** - Payment gateway (sandbox/mock mode)
 
 ## Struktur Project
 
