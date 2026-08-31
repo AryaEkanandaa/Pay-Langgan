@@ -122,6 +122,9 @@ curl http://localhost:8080/health
 | GET | /api/v1/me | Profil user saat ini |
 | GET | /api/v1/businesses/me | Detail business |
 | PUT | /api/v1/businesses/me | Update business |
+| GET | /api/v1/users | List user dalam business (Admin) |
+| POST | /api/v1/users | Buat user Sales/Finance (Admin) |
+| GET | /api/v1/dashboard/summary | Statistik dashboard (Admin/Finance) |
 | GET | /api/v1/services | List services |
 | GET | /api/v1/services/:id | Detail service |
 | POST | /api/v1/services | Create service |
@@ -317,6 +320,21 @@ newman run postman/PAY-LANGGAN.postman_collection.json \
 | `make build` | Build binary |
 | `make docker-up` | Start PostgreSQL container |
 | `make docker-down` | Stop PostgreSQL container |
+
+## Role dan Alur Akses
+
+- **Admin** dibuat otomatis sebagai user pertama ketika signup dan dapat mengelola business serta membuat user Sales/Finance.
+- **Sales** dibuat oleh Admin dan dapat mengelola pelanggan, katalog, kupon, dan subscription.
+- **Finance** dibuat oleh Admin dan dapat melihat dashboard, pelanggan, kupon, serta subscription.
+- **Super Admin** berada di level platform dan tidak dibuat melalui signup publik. Akunnya harus diprovision secara internal.
+
+Semua user tenant membawa `business_id` di JWT. Endpoint tenant melakukan pembatasan role dan business agar data antar-business tetap terisolasi.
+
+Untuk membuat Super Admin setelah migration role dijalankan:
+
+```bash
+go run ./cmd/create-super-admin -name "Platform Admin" -email "superadmin@example.com" -password "password123"
+```
 
 ## Environment Variables
 
