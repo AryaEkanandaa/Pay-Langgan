@@ -34,3 +34,6 @@ docker-data/
 # Temp
 tmp/
 temp/
+
+# Go cache generated locally
+.gocache-*/
