@@ -2,7 +2,6 @@ package subscription
 
 import (
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"pay-langgan/internal/repositories/coupon"
 	"pay-langgan/internal/repositories/customer"
 	"pay-langgan/internal/repositories/subscription"
+	billingsvc "pay-langgan/internal/services/billing"
 	"pay-langgan/internal/utils"
 )
 
@@ -46,8 +46,8 @@ func NewSubscriptionService(
 	customerRepo *customer.CustomerRepository,
 	invoiceRepos ...*billingrepo.InvoiceRepository,
 ) *SubscriptionService {
-	var invoiceRepo *billingrepo.InvoiceRepository
-	if len(invoiceRepos) > 0 {
+	invoiceRepo := billingrepo.NewInvoiceRepository(db)
+	if len(invoiceRepos) > 0 && invoiceRepos[0] != nil {
 		invoiceRepo = invoiceRepos[0]
 	}
 	return &SubscriptionService{
@@ -115,24 +115,25 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 		return nil, utils.ErrNotFound
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
+	schedule, err := initialBillingSchedule(now, plan.BillingCycle, plan.TrialDays)
+	if err != nil {
+		return nil, fmt.Errorf("initial billing schedule: %w", err)
+	}
 	sub := &models.Subscription{
-		CustomerID: req.CustomerID,
-		PlanID:     req.PlanID,
-		StartDate:  now,
-		Meta:       req.Meta,
+		CustomerID:      req.CustomerID,
+		PlanID:          req.PlanID,
+		StartDate:       now,
+		Meta:            req.Meta,
+		Status:          schedule.status,
+		TrialEndsAt:     schedule.trialEndsAt,
+		NextBillingDate: &schedule.nextBillingDate,
 	}
-	invoiceAmount := plan.Price
-
-	if plan.TrialDays > 0 {
-		sub.Status = "trial"
-		trialEnd := now.AddDate(0, 0, plan.TrialDays)
-		sub.TrialEndsAt = &trialEnd
-		sub.NextBillingDate = &trialEnd
-	} else {
-		sub.Status = "active"
-		sub.NextBillingDate = &now
+	sub.BillingAnchor = &now
+	if schedule.trialEndsAt != nil {
+		sub.BillingAnchor = schedule.trialEndsAt
 	}
+	sub.BillingCycle = &plan.BillingCycle
 
 	tx, err := s.db.Beginx()
 	if err != nil {
@@ -153,6 +154,10 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 			return nil, fmt.Errorf("add-on %d not found", a.AddOnID)
 		}
 
+		if addOn.BillingCycle != plan.BillingCycle {
+			return nil, fmt.Errorf("add-on billing cycle must match the subscription")
+		}
+
 		item := &models.SubscriptionAddOn{
 			SubscriptionID: sub.ID,
 			AddOnID:        a.AddOnID,
@@ -161,7 +166,6 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 		if err := s.subAddOnRepo.Upsert(tx, item); err != nil {
 			return nil, fmt.Errorf("upsert add-on %d: %w", a.AddOnID, err)
 		}
-		invoiceAmount += addOn.Price * float64(a.Quantity)
 	}
 
 	if req.CouponCode != "" {
@@ -179,19 +183,6 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 			return nil, fmt.Errorf("coupon usage limit exceeded")
 		}
 
-		discountAmount := 0.0
-		subtotalAmount := invoiceAmount
-		switch coup.DiscountType {
-		case "percentage":
-			discountAmount = subtotalAmount * (coup.DiscountValue / 100)
-		case "fixed":
-			discountAmount = coup.DiscountValue
-		}
-		if discountAmount > subtotalAmount {
-			discountAmount = subtotalAmount
-		}
-		invoiceAmount = subtotalAmount - math.Floor(discountAmount*100)/100
-
 		subCpn := &models.SubscriptionCoupon{
 			SubscriptionID: sub.ID,
 			CouponID:       coup.ID,
@@ -205,16 +196,9 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 		}
 	}
 
-	if s.invoiceRepo != nil {
-		invoice := &models.Invoice{
-			SubscriptionID: sub.ID,
-			InvoiceNumber:  utils.GenerateInvoiceNumber(),
-			Amount:         math.Floor(invoiceAmount*100) / 100,
-			Status:         "pending",
-			DueDate:        sub.NextBillingDate,
-		}
-		if err := s.invoiceRepo.Create(tx, invoice); err != nil {
-			return nil, fmt.Errorf("create invoice: %w", err)
+	if schedule.invoiceDueDate != nil {
+		if _, err := billingsvc.IssueInvoice(tx, s.invoiceRepo, sub.ID, now, schedule.nextBillingDate, plan.BillingCycle, true); err != nil {
+			return nil, fmt.Errorf("create initial invoice: %w", err)
 		}
 	}
 

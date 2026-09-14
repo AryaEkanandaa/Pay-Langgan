@@ -12,7 +12,12 @@ func (s *SubscriptionService) AddAddOn(id int, businessID string, userID int, ad
 		return nil, utils.ErrBadRequest
 	}
 
-	sub, err := s.subRepo.FindByIDAndBusinessID(id, businessID)
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	sub, err := s.subRepo.LockByIDAndBusinessID(tx, id, businessID)
 	if err != nil {
 		return nil, fmt.Errorf("find subscription: %w", err)
 	}
@@ -28,11 +33,9 @@ func (s *SubscriptionService) AddAddOn(id int, businessID string, userID int, ad
 		return nil, utils.ErrNotFound
 	}
 
-	tx, err := s.db.Beginx()
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
+	if sub.BillingCycle != nil && addOn.BillingCycle != *sub.BillingCycle {
+		return nil, fmt.Errorf("add-on billing cycle must match the subscription")
 	}
-	defer tx.Rollback()
 
 	item := &models.SubscriptionAddOn{
 		SubscriptionID: sub.ID,
@@ -63,19 +66,18 @@ func (s *SubscriptionService) AddAddOn(id int, businessID string, userID int, ad
 }
 
 func (s *SubscriptionService) RemoveAddOn(id int, businessID string, userID int, addOnID int) (*models.SubscriptionDetailResponse, error) {
-	sub, err := s.subRepo.FindByIDAndBusinessID(id, businessID)
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	sub, err := s.subRepo.LockByIDAndBusinessID(tx, id, businessID)
 	if err != nil {
 		return nil, fmt.Errorf("find subscription: %w", err)
 	}
 	if sub == nil {
 		return nil, utils.ErrNotFound
 	}
-
-	tx, err := s.db.Beginx()
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
 
 	removed, err := s.subAddOnRepo.DeleteBySubscriptionIDAndAddOnID(tx, sub.ID, addOnID)
 	if err != nil {

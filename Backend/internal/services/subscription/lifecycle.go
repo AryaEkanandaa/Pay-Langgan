@@ -9,7 +9,12 @@ import (
 )
 
 func (s *SubscriptionService) Cancel(id int, businessID string, userID int, reason string) (*models.SubscriptionDetailResponse, error) {
-	sub, err := s.subRepo.FindByIDAndBusinessID(id, businessID)
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	sub, err := s.subRepo.LockByIDAndBusinessID(tx, id, businessID)
 	if err != nil {
 		return nil, fmt.Errorf("find subscription: %w", err)
 	}
@@ -21,7 +26,7 @@ func (s *SubscriptionService) Cancel(id int, businessID string, userID int, reas
 		return nil, fmt.Errorf("cannot cancel subscription with status %s", sub.Status)
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	sub.Status = "cancelled"
 	sub.EndDate = &now
 	if sub.Meta == nil {
@@ -30,12 +35,6 @@ func (s *SubscriptionService) Cancel(id int, businessID string, userID int, reas
 	if reason != "" {
 		sub.Meta["cancel_reason"] = reason
 	}
-
-	tx, err := s.db.Beginx()
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
 
 	if err := s.subRepo.UpdateStatus(tx, sub); err != nil {
 		return nil, fmt.Errorf("update status: %w", err)
@@ -61,7 +60,12 @@ func (s *SubscriptionService) Cancel(id int, businessID string, userID int, reas
 }
 
 func (s *SubscriptionService) Pause(id int, businessID string, userID int, reason string) (*models.SubscriptionDetailResponse, error) {
-	sub, err := s.subRepo.FindByIDAndBusinessID(id, businessID)
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	sub, err := s.subRepo.LockByIDAndBusinessID(tx, id, businessID)
 	if err != nil {
 		return nil, fmt.Errorf("find subscription: %w", err)
 	}
@@ -80,12 +84,6 @@ func (s *SubscriptionService) Pause(id int, businessID string, userID int, reaso
 	if reason != "" {
 		sub.Meta["pause_reason"] = reason
 	}
-
-	tx, err := s.db.Beginx()
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
 
 	if err := s.subRepo.UpdateStatus(tx, sub); err != nil {
 		return nil, fmt.Errorf("update status: %w", err)
@@ -111,7 +109,12 @@ func (s *SubscriptionService) Pause(id int, businessID string, userID int, reaso
 }
 
 func (s *SubscriptionService) Resume(id int, businessID string, userID int) (*models.SubscriptionDetailResponse, error) {
-	sub, err := s.subRepo.FindByIDAndBusinessID(id, businessID)
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	sub, err := s.subRepo.LockByIDAndBusinessID(tx, id, businessID)
 	if err != nil {
 		return nil, fmt.Errorf("find subscription: %w", err)
 	}
@@ -123,17 +126,14 @@ func (s *SubscriptionService) Resume(id int, businessID string, userID int) (*mo
 		return nil, fmt.Errorf("cannot resume subscription with status %s", sub.Status)
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	sub.Status = "active"
 	if sub.NextBillingDate == nil || sub.NextBillingDate.Before(now) {
 		sub.NextBillingDate = &now
+		if sub.BillingAnchor != nil {
+			sub.BillingAnchor = &now
+		}
 	}
-
-	tx, err := s.db.Beginx()
-	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
 
 	if err := s.subRepo.UpdateStatus(tx, sub); err != nil {
 		return nil, fmt.Errorf("update status: %w", err)

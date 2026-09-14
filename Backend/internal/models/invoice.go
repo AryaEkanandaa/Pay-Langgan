@@ -5,6 +5,8 @@ import (
 )
 
 type Invoice struct {
+	PeriodStart    *time.Time `db:"period_start" json:"period_start"`
+	PeriodEnd      *time.Time `db:"period_end" json:"period_end"`
 	ID             int        `db:"id" json:"id"`
 	SubscriptionID int        `db:"subscription_id" json:"subscription_id"`
 	InvoiceNumber  string     `db:"invoice_number" json:"invoice_number"`
