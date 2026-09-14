@@ -27,6 +27,11 @@ type Config struct {
 	MidtransClientKey string
 	MidtransBaseURL   string
 	MidtransMock      bool
+
+	XenditSecretKey     string
+	XenditCallbackToken string
+	XenditBaseURL       string
+	XenditMock          bool
 }
 
 func Load() *Config {
@@ -51,6 +56,11 @@ func Load() *Config {
 		MidtransClientKey: getEnv("MIDTRANS_CLIENT_KEY", ""),
 		MidtransBaseURL:   getEnv("MIDTRANS_BASE_URL", "https://api.sandbox.midtrans.com"),
 		MidtransMock:      getBool("MIDTRANS_MOCK", true),
+
+		XenditSecretKey:     getEnv("XENDIT_SECRET_KEY", ""),
+		XenditCallbackToken: getEnv("XENDIT_CALLBACK_TOKEN", ""),
+		XenditBaseURL:       getEnv("XENDIT_BASE_URL", "https://api.xendit.co"),
+		XenditMock:          getBool("XENDIT_MOCK", true),
 	}
 }
 
