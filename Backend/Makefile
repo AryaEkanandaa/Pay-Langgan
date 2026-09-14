@@ -12,6 +12,10 @@ DB_DSN ?= host=$(DB_HOST) port=$(DB_PORT) user=$(DB_USER) password=$(DB_PASSWORD
 run:
 	$(GO) run ./cmd/api
 
+.PHONY: worker
+worker:
+	$(GO) run ./cmd/worker
+
 migrate-up:
 	$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$(DB_DSN)" up
 
