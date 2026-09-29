@@ -1,0 +1,2747 @@
+{
+  "info": {
+    "name": "PAY-LANGGAN Backend API",
+    "description": "Seluruh route HTTP Backend/internal/routes. Alur: login, katalog, pelanggan, subscription, invoice, checkout. Request mutasi hanya berjalan jika flag terkait bernilai true. Token JWT disimpan di environment lokal setelah login.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "01 - Kesehatan dan autentikasi",
+      "description": "Jalankan login terlebih dahulu. Signup opsional dan membuat tenant baru.",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/health",
+            "description": "Memastikan API merespons di base_url.",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Signup bisnis dan admin",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/signup",
+            "description": "Membuat tenant dan admin baru. Email harus unik; aktifkan run_signup.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"business_name\": \"PT Nusantara Digital\",\n  \"name\": \"Andi Pratama\",\n  \"email\": \"{{signup_email}}\",\n  \"password\": \"{{signup_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_signup\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.token !== undefined) pm.environment.set(\"token\", result.data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/login",
+            "description": "Login dengan kredensial environment; menyimpan JWT ke token.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{login_email}}\",\n  \"password\": \"{{login_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 200 && result.data && result.data.token !== undefined) pm.environment.set(\"token\", result.data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Profil saya",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/me",
+            "description": "Memeriksa JWT dan profil user aktif.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Bisnis dan pengguna",
+      "description": "Akses tenant; perubahan bisnis dan staf membutuhkan Admin.",
+      "item": [
+        {
+          "name": "Detail bisnis",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/businesses/me",
+            "description": "Mengambil bisnis dari JWT.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ubah bisnis",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/businesses/me",
+            "description": "Mengubah nama bisnis; Admin saja.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"PT Nusantara Digital\",\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Daftar pengguna",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/users",
+            "description": "Daftar anggota tenant; Admin saja.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buat staf",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/users",
+            "description": "Membuat Sales atau Finance. Gunakan email unik; Admin saja.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sari Pratama\",\n  \"email\": \"{{staff_email}}\",\n  \"password\": \"{{staff_password}}\",\n  \"role\": \"sales\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Katalog / Layanan",
+      "description": "Urutan: buat layanan, produk, paket, lalu add-on. Admin atau Sales untuk menulis.",
+      "item": [
+        {
+          "name": "Daftar Layanan",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/services?page={{page}}&limit={{limit}}",
+            "description": "Daftar dengan pagination dan pencarian.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buat Layanan",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/services",
+            "description": "Membuat data dan menyimpan ID ke service_id.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Aplikasi Rapat\",\n  \"description\": \"Layanan SaaS\",\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.id !== undefined) pm.environment.set(\"service_id\", result.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail Layanan",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/services/{{service_id}}",
+            "description": "Mengambil data menurut ID.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"service_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ubah Layanan",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/services/{{service_id}}",
+            "description": "Mengubah data terpilih.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Aplikasi Rapat Plus\",\n  \"description\": \"Layanan SaaS\",\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"service_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hapus Layanan",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/services/{{service_id}}",
+            "description": "Menghapus data. Jalankan terpisah setelah dependensi dilepas.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"service_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Katalog / Produk",
+      "description": "Urutan: buat layanan, produk, paket, lalu add-on. Admin atau Sales untuk menulis.",
+      "item": [
+        {
+          "name": "Daftar Produk",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/products?page={{page}}&limit={{limit}}",
+            "description": "Daftar dengan pagination dan pencarian.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buat Produk",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/products",
+            "description": "Membuat data dan menyimpan ID ke product_id.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service_id\": {{service_id}},\n  \"name\": \"Paket Tim\",\n  \"description\": \"Untuk tim kecil\",\n  \"status\": \"active\",\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"service_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.id !== undefined) pm.environment.set(\"product_id\", result.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail Produk",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/products/{{product_id}}",
+            "description": "Mengambil data menurut ID.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"product_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ubah Produk",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/products/{{product_id}}",
+            "description": "Mengubah data terpilih.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Paket Tim Plus\",\n  \"description\": \"Untuk tim\",\n  \"status\": \"active\",\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"product_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hapus Produk",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/products/{{product_id}}",
+            "description": "Menghapus data. Jalankan terpisah setelah dependensi dilepas.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"product_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Katalog / Paket",
+      "description": "Urutan: buat layanan, produk, paket, lalu add-on. Admin atau Sales untuk menulis.",
+      "item": [
+        {
+          "name": "Daftar Paket",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/plans?page={{page}}&limit={{limit}}",
+            "description": "Daftar dengan pagination dan pencarian.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buat Paket",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/plans",
+            "description": "Membuat data dan menyimpan ID ke plan_id.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": {{product_id}},\n  \"name\": \"Bulanan\",\n  \"price\": 100000,\n  \"billing_cycle\": \"monthly\",\n  \"trial_days\": 0,\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"product_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.id !== undefined) pm.environment.set(\"plan_id\", result.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail Paket",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/plans/{{plan_id}}",
+            "description": "Mengambil data menurut ID.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"plan_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ubah Paket",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/plans/{{plan_id}}",
+            "description": "Mengubah data terpilih.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bulanan Plus\",\n  \"price\": 120000,\n  \"billing_cycle\": \"monthly\",\n  \"trial_days\": 0,\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"plan_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hapus Paket",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/plans/{{plan_id}}",
+            "description": "Menghapus data. Jalankan terpisah setelah dependensi dilepas.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"plan_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Katalog / Add-on",
+      "description": "Urutan: buat layanan, produk, paket, lalu add-on. Admin atau Sales untuk menulis.",
+      "item": [
+        {
+          "name": "Daftar Add-on",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/add-ons?page={{page}}&limit={{limit}}",
+            "description": "Daftar dengan pagination dan pencarian.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buat Add-on",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/add-ons",
+            "description": "Membuat data dan menyimpan ID ke add_on_id.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": {{product_id}},\n  \"name\": \"Kapasitas ekstra\",\n  \"price\": 20000,\n  \"billing_cycle\": \"monthly\",\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"product_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.id !== undefined) pm.environment.set(\"add_on_id\", result.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail Add-on",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/add-ons/{{add_on_id}}",
+            "description": "Mengambil data menurut ID.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"add_on_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ubah Add-on",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/add-ons/{{add_on_id}}",
+            "description": "Mengubah data terpilih.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Kapasitas ekstra Plus\",\n  \"price\": 25000,\n  \"billing_cycle\": \"monthly\",\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"add_on_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hapus Add-on",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/add-ons/{{add_on_id}}",
+            "description": "Menghapus data. Jalankan terpisah setelah dependensi dilepas.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"add_on_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 - Kupon",
+      "description": "Admin atau Sales dapat mengubah kupon. Kode kupon harus unik.",
+      "item": [
+        {
+          "name": "Daftar kupon",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/coupons?page={{page}}&limit={{limit}}",
+            "description": "Daftar kupon dengan pagination.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buat kupon",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/coupons",
+            "description": "Membuat kupon persentase dan menyimpan coupon_id.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{coupon_code}}\",\n  \"discount_type\": \"percentage\",\n  \"discount_value\": 10,\n  \"max_usage\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.id !== undefined) pm.environment.set(\"coupon_id\", result.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail kupon",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/coupons/{{coupon_id}}",
+            "description": "Mengambil kupon menurut ID.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"coupon_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ubah kupon",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/coupons/{{coupon_id}}",
+            "description": "Mengubah kupon.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{coupon_code}}\",\n  \"discount_type\": \"percentage\",\n  \"discount_value\": 15,\n  \"max_usage\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"coupon_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hapus kupon",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/coupons/{{coupon_id}}",
+            "description": "Menghapus kupon setelah tidak dipakai.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"coupon_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 - Pelanggan",
+      "description": "Admin atau Sales dapat mengubah pelanggan.",
+      "item": [
+        {
+          "name": "Daftar pelanggan",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/customers?page={{page}}&limit={{limit}}",
+            "description": "Daftar pelanggan dengan pagination.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buat pelanggan",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/customers",
+            "description": "Membuat pelanggan dan menyimpan customer_id.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Budi Santoso\",\n  \"email\": \"{{customer_email}}\",\n  \"contact\": \"{{customer_mobile}}\",\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.id !== undefined) pm.environment.set(\"customer_id\", result.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail pelanggan",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/customers/{{customer_id}}",
+            "description": "Mengambil pelanggan menurut ID.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"customer_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ubah pelanggan",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/customers/{{customer_id}}",
+            "description": "Mengubah pelanggan.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Budi Santoso\",\n  \"email\": \"{{customer_email}}\",\n  \"contact\": \"{{customer_mobile}}\",\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"customer_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hapus pelanggan",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/customers/{{customer_id}}",
+            "description": "Menghapus pelanggan setelah dependensi dilepas.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"customer_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 - Subscription",
+      "description": "Preview dan perubahan subscription membutuhkan Admin atau Sales. Status trial tidak dapat di-pause.",
+      "item": [
+        {
+          "name": "Preview harga",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/subscriptions/preview",
+            "description": "Menghitung harga tanpa membuat subscription.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_id\": {{plan_id}},\n  \"add_ons\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"plan_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Daftar subscription",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/subscriptions?page={{page}}&limit={{limit}}",
+            "description": "Filter status: trial, active, paused, cancelled.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buat subscription",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/subscriptions",
+            "description": "Membuat subscription dari customer dan plan; menyimpan subscription_id. Plan trial_days=0 memulai status active.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"plan_id\": {{plan_id}},\n  \"add_ons\": [],\n  \"meta\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"customer_id\")) pm.execution.skipRequest();",
+                  "if (!pm.environment.get(\"plan_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.id !== undefined) pm.environment.set(\"subscription_id\", result.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail subscription",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}",
+            "description": "Detail termasuk add-on dan kupon.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tambah add-on",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/add-ons",
+            "description": "Menambah add-on ke subscription.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"add_on_id\": {{add_on_id}},\n  \"quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();",
+                  "if (!pm.environment.get(\"add_on_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lepas add-on",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/add-ons/{{add_on_id}}",
+            "description": "Melepas add-on; mengubah tagihan berikutnya.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();",
+                  "if (!pm.environment.get(\"add_on_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Terapkan kupon",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/coupons",
+            "description": "Menerapkan kupon berdasarkan kode.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"coupon_code\": \"{{coupon_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_mutations\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lepas kupon",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/coupons/{{coupon_id}}",
+            "description": "Melepas kupon.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();",
+                  "if (!pm.environment.get(\"coupon_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pause subscription",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/pause",
+            "description": "Hanya untuk subscription active.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Atas permintaan pelanggan\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resume subscription",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/resume",
+            "description": "Hanya untuk subscription paused.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel subscription",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/cancel",
+            "description": "Pembatalan permanen; jalankan setelah pengujian pembayaran.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Atas permintaan pelanggan\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 - Invoice dan dashboard",
+      "description": "Invoice dibuat oleh alur subscription atau worker billing, bukan endpoint create invoice.",
+      "item": [
+        {
+          "name": "Ringkasan dashboard",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/dashboard/summary",
+            "description": "Metrik tenant saat ini.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Daftar invoice",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/invoices?page={{page}}&limit={{limit}}",
+            "description": "Filter status: pending, paid, failed, cancelled. Isi invoice_id dari hasil daftar.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail invoice",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/invoices/{{invoice_id}}",
+            "description": "Invoice beserta item dan payment.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"invoice_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tandai lunas manual",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/invoices/{{invoice_id}}/mark-paid",
+            "description": "Mengubah status pembayaran secara manual; Admin atau Finance saja.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"invoice_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 - Checkout publik dan Xendit",
+      "description": "Link dibuat oleh Admin/Finance. GET dan POST checkout publik memakai token mentah dari respons create link. Jangan simpan SDK key dalam koleksi.",
+      "item": [
+        {
+          "name": "Buat checkout link",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/invoices/{{invoice_id}}/checkout-links",
+            "description": "Invoice pending diperlukan. Menyimpan checkout_token dan checkout_url.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"invoice_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_checkout\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.token !== undefined) pm.environment.set(\"checkout_token\", result.data.token);",
+                  "if (pm.response.code === 201 && result.data && result.data.checkout_url !== undefined) pm.environment.set(\"checkout_url\", result.data.checkout_url);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lihat checkout publik",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/checkout/{{checkout_token}}",
+            "description": "Data aman untuk customer tanpa JWT; limit per IP dan token.",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"checkout_token\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mulai sesi kartu",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/checkout/{{checkout_token}}/session",
+            "description": "Menghasilkan payment_session_id dan components_sdk_key. Di mode mock, SDK key tidak berlaku di Xendit sesungguhnya.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Budi Santoso\",\n  \"email\": \"{{customer_email}}\",\n  \"mobile\": \"{{customer_mobile}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"checkout_token\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_checkout\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 200 && result.data && result.data.payment_session_id !== undefined) pm.environment.set(\"payment_session_id\", result.data.payment_session_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Webhook Payment Session",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/webhooks/xendit/payment-sessions",
+            "description": "Hanya untuk payload callback Xendit yang valid. Isi webhook_payload dan callback_token dari lingkungan aman; bukan webhook Payments API v3.",
+            "header": [
+              {
+                "key": "x-callback-token",
+                "value": "{{callback_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{webhook_payload}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_webhook\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09 - Riwayat pembayaran dan autopay",
+      "description": "Admin atau Finance. Autopay perlu metode Xendit tersimpan, persetujuan pelanggan, dan AUTOPAY_ENABLED pada worker.",
+      "item": [
+        {
+          "name": "Riwayat pembayaran",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/payments?page={{page}}&limit={{limit}}",
+            "description": "Filter opsional invoice_id, subscription_id, status; hapus parameter kosong sebelum mengirim bila perlu.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Metode pembayaran pelanggan",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/customers/{{customer_id}}/payment-methods",
+            "description": "ID metode pembayaran yang telah tersimpan; isi payment_method_id dari respons.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"customer_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pengaturan autopay",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/autopay",
+            "description": "Melihat persetujuan autopay saat ini.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aktifkan autopay",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/autopay",
+            "description": "Hanya setelah persetujuan nyata; method harus milik pelanggan dan subscription active.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"payment_method_id\": {{payment_method_id}},\n  \"consent_reference\": \"{{consent_reference}}\",\n  \"consented_at\": \"{{consented_at}}\",\n  \"consent_expires_at\": \"{{consent_expires_at}}\",\n  \"max_amount\": 200000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();",
+                  "if (!pm.environment.get(\"payment_method_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_autopay\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Nonaktifkan autopay",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/subscriptions/{{subscription_id}}/autopay",
+            "description": "Menghentikan debit baru; debit yang sudah dimulai tetap direkonsiliasi.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get(\"subscription_id\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10 - Tagihan bisnis ke PayLanggan",
+      "description": "Admin bisnis. Satu paket Rp300.000 per bulan; checkout pertama menyimpan metode pembayaran untuk debit otomatis setelah persetujuan.",
+      "item": [
+        {
+          "name": "Paket PayLanggan",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/platform/plan",
+            "description": "Satu paket tetap Rp300.000 per bulan.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Status langganan PayLanggan",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/platform/subscription",
+            "description": "Status, tanggal berlaku, persetujuan debit, dan tagihan pending.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Daftar tagihan PayLanggan",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/platform/invoices",
+            "description": "Tagihan bisnis ke PayLanggan, terpisah dari invoice pelanggan.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mulai checkout PayLanggan",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/platform/subscription/checkout",
+            "description": "Hanya kirim setelah admin bisnis menyetujui debit otomatis Rp300.000 tiap bulan. Membuat checkout Xendit dan menyimpan platform_checkout_url.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"auto_renew_consent\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_platform_checkout\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));",
+                  "if (pm.response.code === 201 && result.data && result.data.checkout_url !== undefined) pm.environment.set(\"platform_checkout_url\", result.data.checkout_url);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Batalkan langganan PayLanggan",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/platform/subscription/cancel",
+            "description": "Menghentikan perpanjangan berikutnya; periode yang sudah dibayar tetap tercatat.",
+            "header": []
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.environment.get(\"run_irreversible\") !== \"true\") pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "pm.test(\"Respons sukses\", () => pm.expect(result.success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

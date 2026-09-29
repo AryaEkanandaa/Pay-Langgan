@@ -35,5 +35,10 @@ docker-data/
 tmp/
 temp/
 
+# Local development journal
+/DEV_PROGRESS.md
+
 # Go cache generated locally
 .gocache-*/
+
+.tmp
