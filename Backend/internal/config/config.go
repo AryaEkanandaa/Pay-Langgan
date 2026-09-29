@@ -9,9 +9,10 @@ import (
 )
 
 type Config struct {
-	AppName string
-	AppEnv  string
-	AppPort string
+	AppName      string
+	AppEnv       string
+	AppPort      string
+	AppPublicURL string
 
 	DBHost     string
 	DBPort     string
@@ -32,15 +33,19 @@ type Config struct {
 	XenditCallbackToken string
 	XenditBaseURL       string
 	XenditMock          bool
+	XenditReturnBaseURL string
+	CheckoutTTL         time.Duration
+	AutopayEnabled      bool
 }
 
 func Load() *Config {
 	_ = godotenv.Load()
 
 	return &Config{
-		AppName: getEnv("APP_NAME", "PAY-LANGGAN.COM"),
-		AppEnv:  getEnv("APP_ENV", "development"),
-		AppPort: getEnv("APP_PORT", "8080"),
+		AppName:      getEnv("APP_NAME", "PAY-LANGGAN.COM"),
+		AppEnv:       getEnv("APP_ENV", "development"),
+		AppPort:      getEnv("APP_PORT", "8080"),
+		AppPublicURL: getEnv("APP_PUBLIC_URL", "http://localhost:5173"),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "5432"),
@@ -61,6 +66,9 @@ func Load() *Config {
 		XenditCallbackToken: getEnv("XENDIT_CALLBACK_TOKEN", ""),
 		XenditBaseURL:       getEnv("XENDIT_BASE_URL", "https://api.xendit.co"),
 		XenditMock:          getBool("XENDIT_MOCK", true),
+		XenditReturnBaseURL: getEnv("XENDIT_RETURN_BASE_URL", "https://paylanggan.example"),
+		CheckoutTTL:         getDuration("CHECKOUT_TTL", 24*time.Hour),
+		AutopayEnabled:      getBool("AUTOPAY_ENABLED", false),
 	}
 }
 

@@ -112,6 +112,17 @@ func (r *InvoiceRepository) FindLatestPayment(invoiceID int) (*models.Payment, e
 }
 
 func (r *InvoiceRepository) MarkPaid(tx *sqlx.Tx, id int, businessID string) (float64, bool, error) {
+	// Recheck in a new statement after acquiring the invoice lock, so a
+	// concurrent automatic charge cannot be missed by the UPDATE snapshot.
+	var lockedID int
+	lockErr := tx.Get(&lockedID, `SELECT i.id FROM invoices i JOIN subscriptions s ON s.id=i.subscription_id
+ JOIN customers c ON c.id=s.customer_id WHERE i.id=$1 AND c.business_id=$2 FOR UPDATE OF i`, id, businessID)
+	if lockErr == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if lockErr != nil {
+		return 0, false, lockErr
+	}
 	query := `UPDATE invoices i
 		SET status = 'paid', paid_at = NOW()
 		FROM subscriptions s
@@ -120,6 +131,11 @@ func (r *InvoiceRepository) MarkPaid(tx *sqlx.Tx, id int, businessID string) (fl
 		  AND i.id = $1
 		  AND c.business_id = $2
 		  AND i.status NOT IN ('paid', 'cancelled')
+		  AND NOT EXISTS (
+		    SELECT 1 FROM checkout_sessions cs
+		    WHERE cs.invoice_id = i.id AND cs.status IN ('creating', 'active')
+		  )
+		  AND NOT EXISTS (SELECT 1 FROM autopay_charges ac WHERE ac.invoice_id=i.id AND ac.status IN ('creating','pending','review_required'))
 		RETURNING i.amount`
 	var amount float64
 	if err := tx.QueryRow(query, id, businessID).Scan(&amount); err != nil {

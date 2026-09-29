@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func validSessionRequest() XenditSessionRequest {
@@ -19,8 +20,8 @@ func validSessionRequest() XenditSessionRequest {
 		CustomerEmail:       "alya@example.com",
 		CustomerMobile:      "+628123456789",
 		Description:         "Paket Pro Bulanan",
-		SuccessReturnURL:    "https://paylanggan.example/checkout/success",
-		CancelReturnURL:     "https://paylanggan.example/checkout/cancel",
+		ComponentsOrigins:   []string{"https://paylanggan.example"},
+		ReturnURL:           "https://paylanggan.example/checkout/done",
 	}
 }
 
@@ -34,15 +35,17 @@ func TestXenditCreateCardSession(t *testing.T) {
 			t.Fatal("missing Xendit basic authentication")
 		}
 		var payload struct {
-			ReferenceID string   `json:"reference_id"`
-			SessionType string   `json:"session_type"`
-			Mode        string   `json:"mode"`
-			Amount      int64    `json:"amount"`
-			Currency    string   `json:"currency"`
-			Country     string   `json:"country"`
-			Allowed     []string `json:"allowed_payment_channels"`
-			Save        string   `json:"allow_save_payment_method"`
-			Customer    struct {
+			ReferenceID      string                  `json:"reference_id"`
+			SessionType      string                  `json:"session_type"`
+			Mode             string                  `json:"mode"`
+			Amount           int64                   `json:"amount"`
+			Currency         string                  `json:"currency"`
+			Country          string                  `json:"country"`
+			Allowed          []string                `json:"allowed_payment_channels"`
+			Save             string                  `json:"allow_save_payment_method"`
+			Components       ComponentsConfiguration `json:"components_configuration"`
+			SuccessReturnURL string                  `json:"success_return_url"`
+			Customer         struct {
 				Email  string `json:"email"`
 				Mobile string `json:"mobile_number"`
 			} `json:"customer"`
@@ -50,12 +53,15 @@ func TestXenditCreateCardSession(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
-		if payload.ReferenceID != "invoice_42" || payload.SessionType != "PAY" || payload.Mode != "PAYMENT_LINK" || payload.Amount != 150000 || payload.Currency != "IDR" || payload.Country != "ID" || len(payload.Allowed) != 1 || payload.Allowed[0] != "CARDS" || payload.Save != "FORCED" || payload.Customer.Email == "" || payload.Customer.Mobile == "" {
+		if payload.ReferenceID != "invoice_42" || payload.SessionType != "PAY" || payload.Mode != "COMPONENTS" || payload.Amount != 150000 || payload.Currency != "IDR" || payload.Country != "ID" || len(payload.Allowed) != 1 || payload.Allowed[0] != "CARDS" || payload.Save != "FORCED" || payload.Customer.Email == "" || payload.Customer.Mobile == "" {
 			t.Fatalf("unexpected payload: %+v", payload)
+		}
+		if len(payload.Components.Origins) != 1 || payload.Components.Origins[0] != "https://paylanggan.example" || payload.Components.ReturnURL != validSessionRequest().ReturnURL || payload.SuccessReturnURL != "" {
+			t.Fatal("invalid components configuration")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"payment_session_id":"ps-123456789012345678901234","reference_id":"invoice_42","status":"ACTIVE","payment_link_url":"https://xen.to/test"}`))
+		_ = json.NewEncoder(w).Encode(XenditSessionResponse{PaymentSessionID: "ps-123456789012345678901234", ReferenceID: "invoice_42", Status: "ACTIVE", Mode: "COMPONENTS", ComponentsSDKKey: "sdk-test", ExpiresAt: time.Now().Add(time.Hour)})
 	}))
 	defer server.Close()
 	provider, err := NewXenditProvider("xnd_development_test", "callback-secret", server.URL, true)
@@ -68,7 +74,7 @@ func TestXenditCreateCardSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Status != "ACTIVE" || response.PaymentLinkURL != "https://xen.to/test" {
+	if response.Status != "ACTIVE" || response.ComponentsSDKKey != "sdk-test" || response.PaymentLinkURL != "" {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }
@@ -93,7 +99,11 @@ func TestXenditSessionIsCardsOnlyAndValidatesInput(t *testing.T) {
 		{"amount above card maximum", func(r *XenditSessionRequest) { r.Amount = 200000001 }},
 		{"invalid email", func(r *XenditSessionRequest) { r.CustomerEmail = "invalid" }},
 		{"local phone", func(r *XenditSessionRequest) { r.CustomerMobile = "08123456789" }},
-		{"insecure success URL", func(r *XenditSessionRequest) { r.SuccessReturnURL = "http://example.com/success" }},
+		{"insecure return URL", func(r *XenditSessionRequest) { r.ReturnURL = "http://example.com/success" }},
+		{"missing origins", func(r *XenditSessionRequest) { r.ComponentsOrigins = nil }},
+		{"wildcard origin", func(r *XenditSessionRequest) { r.ComponentsOrigins = []string{"https://*.example.com"} }},
+		{"origin with path", func(r *XenditSessionRequest) { r.ComponentsOrigins = []string{"https://example.com/checkout"} }},
+		{"remote HTTP origin", func(r *XenditSessionRequest) { r.ComponentsOrigins = []string{"http://example.com"} }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -116,6 +126,7 @@ func TestXenditAPIErrorAndResponseValidation(t *testing.T) {
 		{"provider error", http.StatusBadRequest, `{"error_code":"API_VALIDATION_ERROR","message":"invalid request"}`, true},
 		{"malformed success", http.StatusCreated, `{`, false},
 		{"incomplete success", http.StatusCreated, `{"payment_session_id":"ps-test","reference_id":"wrong"}`, false},
+		{"hosted response", http.StatusCreated, `{"payment_session_id":"ps-test","reference_id":"invoice_42","mode":"PAYMENT_LINK","status":"ACTIVE","payment_link_url":"https://xen.to/test"}`, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +160,32 @@ func TestXenditCallbackToken(t *testing.T) {
 	}
 }
 
+func TestXenditGetCardSession(t *testing.T) {
+	for _, reference := range []string{"invoice_42", "another-invoice"} {
+		t.Run(reference, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				key, _, ok := r.BasicAuth()
+				if r.Method != http.MethodGet || r.URL.Path != "/sessions/ps-test" || !ok || key != "key" {
+					t.Error("invalid session retrieval request")
+				}
+				_ = json.NewEncoder(w).Encode(XenditSessionResponse{PaymentSessionID: "ps-test", ReferenceID: reference, Mode: "COMPONENTS", Status: "ACTIVE", ComponentsSDKKey: "sdk-test", ExpiresAt: time.Now().Add(time.Hour)})
+			}))
+			defer server.Close()
+			p, _ := NewXenditProvider("key", "token", server.URL, true)
+			p.mock = false
+			p.httpClient = server.Client()
+			session, err := p.GetCardSession(context.Background(), "ps-test", "invoice_42")
+			if reference != "invoice_42" {
+				if err == nil {
+					t.Fatal("mismatched session accepted")
+				}
+			} else if err != nil || session.ComponentsSDKKey != "sdk-test" {
+				t.Fatal("failed to retrieve SDK key", err)
+			}
+		})
+	}
+}
+
 func TestXenditLiveConfiguration(t *testing.T) {
 	if _, err := NewXenditProvider("", "token", "https://api.xendit.co", false); err == nil {
 		t.Fatal("live provider accepted empty key")
@@ -158,5 +195,24 @@ func TestXenditLiveConfiguration(t *testing.T) {
 	}
 	if _, err := NewXenditProvider("key", "", "https://api.xendit.co", false); err == nil {
 		t.Fatal("live provider accepted empty callback token")
+	}
+}
+
+func TestSessionCreationRejected(t *testing.T) {
+	for _, status := range []int{400, 401, 403, 404, 422} {
+		if !SessionCreationRejected(&XenditAPIError{StatusCode: status}) {
+			t.Fatalf("definitive HTTP %d not recognized", status)
+		}
+	}
+	for _, status := range []int{408, 409, 429, 500, 502, 503} {
+		if SessionCreationRejected(&XenditAPIError{StatusCode: status}) {
+			t.Fatalf("uncertain HTTP %d treated as rejection", status)
+		}
+	}
+	if SessionCreationRejected(context.DeadlineExceeded) || SessionCreationRejected(errors.New("invalid response")) {
+		t.Fatal("ambiguous failure permits another session")
+	}
+	if !SessionCreationRejected(&ValidationError{Err: errors.New("invalid input")}) {
+		t.Fatal("local validation not recognized")
 	}
 }

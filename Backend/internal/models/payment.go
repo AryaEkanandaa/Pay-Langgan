@@ -19,7 +19,7 @@ type PaymentMethod struct {
 	ID         int       `db:"id" json:"id"`
 	CustomerID int       `db:"customer_id" json:"customer_id"`
 	Provider   string    `db:"provider" json:"provider"`
-	Token      string    `db:"token" json:"token"`
+	Token      string    `db:"token" json:"-"`
 	IsDefault  bool      `db:"is_default" json:"is_default"`
 	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }

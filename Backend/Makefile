@@ -16,6 +16,14 @@ run:
 worker:
 	$(GO) run ./cmd/worker
 
+.PHONY: payment-worker
+payment-worker:
+	$(GO) run ./cmd/payments
+
+.PHONY: platform-worker
+platform-worker:
+	$(GO) run ./cmd/platform-worker
+
 migrate-up:
 	$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$(DB_DSN)" up
 
@@ -35,6 +43,8 @@ tidy:
 build:
 	$(GO) build -o bin/api ./cmd/api
 	$(GO) build -o bin/worker ./cmd/worker
+	$(GO) build -o bin/payments ./cmd/payments
+	$(GO) build -o bin/platform-worker ./cmd/platform-worker
 
 .PHONY: docker-up docker-down
 

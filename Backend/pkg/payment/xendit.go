@@ -6,12 +6,14 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/mail"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,6 +25,8 @@ type XenditProvider struct {
 	baseURL       string
 	mock          bool
 	httpClient    *http.Client
+	mockMu        sync.Mutex
+	mockSessions  map[string]XenditSessionResponse
 }
 
 type XenditSessionRequest struct {
@@ -33,18 +37,44 @@ type XenditSessionRequest struct {
 	CustomerEmail       string
 	CustomerMobile      string
 	Description         string
-	SuccessReturnURL    string
-	CancelReturnURL     string
+	ComponentsOrigins   []string
+	ReturnURL           string
+}
+
+type ComponentsConfiguration struct {
+	Origins   []string `json:"origins"`
+	ReturnURL string   `json:"return_url"`
 }
 
 type XenditSessionResponse struct {
-	PaymentSessionID string `json:"payment_session_id"`
-	ReferenceID      string `json:"reference_id"`
-	Status           string `json:"status"`
-	PaymentLinkURL   string `json:"payment_link_url"`
-	PaymentTokenID   string `json:"payment_token_id"`
-	PaymentRequestID string `json:"payment_request_id"`
-	PaymentID        string `json:"payment_id"`
+	Amount           int64     `json:"amount"`
+	Currency         string    `json:"currency"`
+	PaymentSessionID string    `json:"payment_session_id"`
+	ReferenceID      string    `json:"reference_id"`
+	Status           string    `json:"status"`
+	PaymentLinkURL   string    `json:"payment_link_url"`
+	Mode             string    `json:"mode"`
+	ComponentsSDKKey string    `json:"components_sdk_key"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	PaymentTokenID   string    `json:"payment_token_id"`
+	PaymentRequestID string    `json:"payment_request_id"`
+	PaymentID        string    `json:"payment_id"`
+}
+
+type ValidationError struct{ Err error }
+
+func (e *ValidationError) Error() string { return e.Err.Error() }
+func (e *ValidationError) Unwrap() error { return e.Err }
+
+// Only these outcomes prove the creation request did not create a session.
+// Network errors, 408/409/429/5xx and malformed responses remain uncertain.
+func SessionCreationRejected(err error) bool {
+	var validation *ValidationError
+	if errors.As(err, &validation) {
+		return true
+	}
+	var api *XenditAPIError
+	return errors.As(err, &api) && (api.StatusCode == 400 || api.StatusCode == 401 || api.StatusCode == 403 || api.StatusCode == 404 || api.StatusCode == 422)
 }
 
 type XenditAPIError struct {
@@ -84,12 +114,13 @@ func NewXenditProvider(secretKey, callbackToken, baseURL string, mock bool) (*Xe
 		baseURL:       baseURL,
 		mock:          mock,
 		httpClient:    &http.Client{Timeout: 15 * time.Second},
+		mockSessions:  make(map[string]XenditSessionResponse),
 	}, nil
 }
 
 func (p *XenditProvider) CreateCardSession(ctx context.Context, request XenditSessionRequest) (*XenditSessionResponse, error) {
 	if err := validateXenditSessionRequest(request); err != nil {
-		return nil, err
+		return nil, &ValidationError{Err: err}
 	}
 	if p.mock {
 		id, err := secureHex(13)
@@ -97,29 +128,37 @@ func (p *XenditProvider) CreateCardSession(ctx context.Context, request XenditSe
 			return nil, fmt.Errorf("generate mock Xendit session ID: %w", err)
 		}
 		sessionID := "ps-" + id
-		return &XenditSessionResponse{
+		session := XenditSessionResponse{
+			Amount: request.Amount, Currency: "IDR",
 			PaymentSessionID: sessionID,
 			ReferenceID:      request.ReferenceID,
 			Status:           "ACTIVE",
-			PaymentLinkURL:   "https://checkout.xendit.test/" + sessionID,
-		}, nil
+			Mode:             "COMPONENTS",
+			ComponentsSDKKey: "mock-components-" + sessionID,
+			ExpiresAt:        time.Now().UTC().Add(30 * time.Minute),
+		}
+		stored := session
+		stored.ComponentsSDKKey = ""
+		p.mockMu.Lock()
+		p.mockSessions[sessionID] = stored
+		p.mockMu.Unlock()
+		return &session, nil
 	}
 
 	payload := struct {
-		ReferenceID            string   `json:"reference_id"`
-		SessionType            string   `json:"session_type"`
-		Mode                   string   `json:"mode"`
-		Amount                 int64    `json:"amount"`
-		Currency               string   `json:"currency"`
-		Country                string   `json:"country"`
-		CaptureMethod          string   `json:"capture_method"`
-		AllowedPaymentChannels []string `json:"allowed_payment_channels"`
-		AllowSavePaymentMethod string   `json:"allow_save_payment_method"`
-		Locale                 string   `json:"locale"`
-		Description            string   `json:"description"`
-		SuccessReturnURL       string   `json:"success_return_url"`
-		CancelReturnURL        string   `json:"cancel_return_url"`
-		Customer               struct {
+		ReferenceID             string                  `json:"reference_id"`
+		SessionType             string                  `json:"session_type"`
+		Mode                    string                  `json:"mode"`
+		Amount                  int64                   `json:"amount"`
+		Currency                string                  `json:"currency"`
+		Country                 string                  `json:"country"`
+		CaptureMethod           string                  `json:"capture_method"`
+		AllowedPaymentChannels  []string                `json:"allowed_payment_channels"`
+		AllowSavePaymentMethod  string                  `json:"allow_save_payment_method"`
+		Locale                  string                  `json:"locale"`
+		Description             string                  `json:"description"`
+		ComponentsConfiguration ComponentsConfiguration `json:"components_configuration"`
+		Customer                struct {
 			ReferenceID      string `json:"reference_id"`
 			Type             string `json:"type"`
 			Email            string `json:"email"`
@@ -129,19 +168,18 @@ func (p *XenditProvider) CreateCardSession(ctx context.Context, request XenditSe
 			} `json:"individual_detail"`
 		} `json:"customer"`
 	}{
-		ReferenceID:            request.ReferenceID,
-		SessionType:            "PAY",
-		Mode:                   "PAYMENT_LINK",
-		Amount:                 request.Amount,
-		Currency:               "IDR",
-		Country:                "ID",
-		CaptureMethod:          "AUTOMATIC",
-		AllowedPaymentChannels: []string{"CARDS"},
-		AllowSavePaymentMethod: "FORCED",
-		Locale:                 "id",
-		Description:            request.Description,
-		SuccessReturnURL:       request.SuccessReturnURL,
-		CancelReturnURL:        request.CancelReturnURL,
+		ReferenceID:             request.ReferenceID,
+		SessionType:             "PAY",
+		Mode:                    "COMPONENTS",
+		Amount:                  request.Amount,
+		Currency:                "IDR",
+		Country:                 "ID",
+		CaptureMethod:           "AUTOMATIC",
+		AllowedPaymentChannels:  []string{"CARDS"},
+		AllowSavePaymentMethod:  "FORCED",
+		Locale:                  "id",
+		Description:             request.Description,
+		ComponentsConfiguration: ComponentsConfiguration{Origins: request.ComponentsOrigins, ReturnURL: request.ReturnURL},
 	}
 	payload.Customer.ReferenceID = request.CustomerReferenceID
 	payload.Customer.Type = "INDIVIDUAL"
@@ -153,26 +191,85 @@ func (p *XenditProvider) CreateCardSession(ctx context.Context, request XenditSe
 	if err != nil {
 		return nil, fmt.Errorf("encode Xendit session: %w", err)
 	}
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/sessions", strings.NewReader(string(body)))
+	session, err := p.requestSession(ctx, http.MethodPost, "/sessions", string(body))
 	if err != nil {
-		return nil, fmt.Errorf("create Xendit request: %w", err)
+		return nil, err
+	}
+	if session.ReferenceID != request.ReferenceID || !activeComponentsSession(session) {
+		return nil, fmt.Errorf("Xendit returned an incomplete components session")
+	}
+	return session, nil
+}
+
+// GetCardSession retrieves the client key without persisting it locally.
+func (p *XenditProvider) GetCardSession(ctx context.Context, sessionID, referenceID string) (*XenditSessionResponse, error) {
+	if sessionID == "" || strings.ContainsAny(sessionID, "/?#") {
+		return nil, fmt.Errorf("invalid Xendit session ID")
+	}
+	if p.mock {
+		p.mockMu.Lock()
+		session, ok := p.mockSessions[sessionID]
+		p.mockMu.Unlock()
+		if !ok {
+			return nil, &XenditAPIError{StatusCode: 404, Code: "NOT_FOUND", Message: "mock session not found in this process"}
+		}
+		if session.ReferenceID != referenceID {
+			return nil, fmt.Errorf("Xendit returned a mismatched session")
+		}
+		if session.ExpiresAt.After(time.Now()) {
+			session.ComponentsSDKKey = "mock-components-" + sessionID
+		} else {
+			session.Status = "EXPIRED"
+		}
+		return &session, nil
+	}
+	session, err := p.requestSession(ctx, http.MethodGet, "/sessions/"+url.PathEscape(sessionID), "")
+	if err != nil {
+		return nil, err
+	}
+	if session.PaymentSessionID != sessionID || session.ReferenceID != referenceID {
+		return nil, fmt.Errorf("Xendit returned a mismatched session")
+	}
+	return session, nil
+}
+
+func activeComponentsSession(session *XenditSessionResponse) bool {
+	return session != nil && session.PaymentSessionID != "" && session.Mode == "COMPONENTS" &&
+		session.Status == "ACTIVE" && strings.TrimSpace(session.ComponentsSDKKey) != "" && session.ExpiresAt.After(time.Now())
+}
+
+func (p *XenditProvider) requestSession(ctx context.Context, method, path, body string) (*XenditSessionResponse, error) {
+	var session XenditSessionResponse
+	if err := p.requestJSON(ctx, method, path, body, &session); err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (p *XenditProvider) requestJSON(ctx context.Context, method, path, body string, target any) error {
+	httpRequest, err := http.NewRequestWithContext(ctx, method, p.baseURL+path, strings.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create Xendit request: %w", err)
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("Accept", "application/json")
+	if strings.HasPrefix(path, "/v3/") {
+		httpRequest.Header.Set("api-version", "2024-11-11")
+	}
 	httpRequest.SetBasicAuth(p.secretKey, "")
 
 	response, err := p.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("send Xendit session request: %w", err)
+		return fmt.Errorf("send Xendit request: %w", err)
 	}
 	defer response.Body.Close()
 	limited := io.LimitReader(response.Body, maxXenditResponseBytes+1)
 	responseBody, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, fmt.Errorf("read Xendit response: %w", err)
+		return fmt.Errorf("read Xendit response: %w", err)
 	}
 	if len(responseBody) > maxXenditResponseBytes {
-		return nil, fmt.Errorf("Xendit response exceeds size limit")
+		return fmt.Errorf("Xendit response exceeds size limit")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		var apiError struct {
@@ -183,16 +280,12 @@ func (p *XenditProvider) CreateCardSession(ctx context.Context, request XenditSe
 		if apiError.Message == "" {
 			apiError.Message = http.StatusText(response.StatusCode)
 		}
-		return nil, &XenditAPIError{StatusCode: response.StatusCode, Code: apiError.ErrorCode, Message: apiError.Message}
+		return &XenditAPIError{StatusCode: response.StatusCode, Code: apiError.ErrorCode, Message: apiError.Message}
 	}
-	var session XenditSessionResponse
-	if err := json.Unmarshal(responseBody, &session); err != nil {
-		return nil, fmt.Errorf("decode Xendit session response: %w", err)
+	if err := json.Unmarshal(responseBody, target); err != nil {
+		return fmt.Errorf("decode Xendit response: %w", err)
 	}
-	if session.PaymentSessionID == "" || session.ReferenceID != request.ReferenceID || session.PaymentLinkURL == "" {
-		return nil, fmt.Errorf("Xendit returned an incomplete session")
-	}
-	return &session, nil
+	return nil
 }
 
 func (p *XenditProvider) VerifyCallbackToken(received string) bool {
@@ -221,7 +314,17 @@ func validateXenditSessionRequest(request XenditSessionRequest) error {
 	if !validE164(request.CustomerMobile) {
 		return fmt.Errorf("customer mobile number must use E.164 format")
 	}
-	for name, value := range map[string]string{"success return URL": request.SuccessReturnURL, "cancel return URL": request.CancelReturnURL} {
+	if len(request.ComponentsOrigins) == 0 {
+		return fmt.Errorf("components origins are required")
+	}
+	for _, origin := range request.ComponentsOrigins {
+		parsed, err := url.Parse(origin)
+		if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery || strings.Contains(origin, "*") ||
+			(parsed.Scheme != "https" && !(parsed.Scheme == "http" && (parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "::1"))) {
+			return fmt.Errorf("components origin must be HTTPS or a local development HTTP origin without a path")
+		}
+	}
+	for name, value := range map[string]string{"components return URL": request.ReturnURL} {
 		parsed, err := url.ParseRequestURI(value)
 		if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 			return fmt.Errorf("%s must be an HTTPS URL", name)

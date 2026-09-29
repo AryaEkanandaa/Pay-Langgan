@@ -13,6 +13,8 @@ import (
 	couponhttp "pay-langgan/internal/handlers/coupon"
 	customerhttp "pay-langgan/internal/handlers/customer"
 	identityhttp "pay-langgan/internal/handlers/identity"
+	paymenthttp "pay-langgan/internal/handlers/payment"
+	platformhttp "pay-langgan/internal/handlers/platformbilling"
 	revenuehttp "pay-langgan/internal/handlers/revenue"
 	subscriptionhttp "pay-langgan/internal/handlers/subscription"
 	"pay-langgan/internal/repositories/audit"
@@ -21,6 +23,7 @@ import (
 	couponrepo "pay-langgan/internal/repositories/coupon"
 	customerrepo "pay-langgan/internal/repositories/customer"
 	identityrepo "pay-langgan/internal/repositories/identity"
+	paymentrepo "pay-langgan/internal/repositories/payment"
 	revenuerepo "pay-langgan/internal/repositories/revenue"
 	subscriptionrepo "pay-langgan/internal/repositories/subscription"
 	"pay-langgan/internal/routes"
@@ -29,8 +32,11 @@ import (
 	couponsvc "pay-langgan/internal/services/coupon"
 	customersvc "pay-langgan/internal/services/customer"
 	identitysvc "pay-langgan/internal/services/identity"
+	paymentsvc "pay-langgan/internal/services/payment"
+	platformsvc "pay-langgan/internal/services/platformbilling"
 	revenuesvc "pay-langgan/internal/services/revenue"
 	subscriptionsvc "pay-langgan/internal/services/subscription"
+	paymentprovider "pay-langgan/pkg/payment"
 )
 
 func main() {
@@ -59,6 +65,7 @@ func main() {
 	subCpnRepo := subscriptionrepo.NewSubscriptionCouponRepository(db)
 	auditLogRepo := audit.NewAuditLogRepository(db)
 	invoiceRepo := billingrepo.NewInvoiceRepository(db)
+	checkoutRepo := paymentrepo.NewCheckoutRepository(db)
 	businessService := identitysvc.NewBusinessService(businessRepo)
 	userService := identitysvc.NewUserService(userRepo)
 	serviceService := catalogsvc.NewServiceService(serviceRepo)
@@ -72,6 +79,19 @@ func main() {
 	dashboardRepo := revenuerepo.NewDashboardRepository(db)
 	dashboardService := revenuesvc.NewDashboardService(dashboardRepo)
 	invoiceService := billingsvc.NewInvoiceService(db, invoiceRepo)
+	xenditProvider, err := paymentprovider.NewXenditProvider(cfg.XenditSecretKey, cfg.XenditCallbackToken, cfg.XenditBaseURL, cfg.XenditMock)
+	if err != nil {
+		log.Fatalf("Failed to configure Xendit: %v", err)
+	}
+	checkoutService, err := paymentsvc.NewCheckoutService(db, checkoutRepo, xenditProvider, cfg.AppPublicURL, cfg.XenditReturnBaseURL, cfg.CheckoutTTL)
+	if err != nil {
+		log.Fatalf("Failed to configure checkout: %v", err)
+	}
+	merchantService := paymentsvc.NewMerchantIntegrationService(db, checkoutService, invoiceRepo)
+	platformService, err := platformsvc.NewService(db, xenditProvider, cfg.AppPublicURL, cfg.XenditReturnBaseURL)
+	if err != nil {
+		log.Fatalf("Failed to configure platform billing: %v", err)
+	}
 
 	businessHandler := identityhttp.NewBusinessHandler(businessService)
 	userHandler := identityhttp.NewUserHandler(userService)
@@ -84,6 +104,8 @@ func main() {
 	subscriptionHandler := subscriptionhttp.NewSubscriptionHandler(subscriptionService, subscriptionPricingService)
 	dashboardHandler := revenuehttp.NewDashboardHandler(dashboardService)
 	invoiceHandler := billinghttp.NewInvoiceHandler(invoiceService)
+	checkoutHandler := paymenthttp.NewCheckoutHandler(checkoutService)
+	merchantHandler := paymenthttp.NewMerchantIntegrationHandler(merchantService)
 
 	e := echo.New()
 
@@ -103,18 +125,21 @@ func main() {
 	})
 
 	routes.RegisterRoutes(e, &routes.AllHandlers{
-		Auth:         authHandler,
-		Business:     businessHandler,
-		User:         userHandler,
-		Service:      serviceHandler,
-		Product:      productHandler,
-		Plan:         planHandler,
-		AddOn:        addOnHandler,
-		Coupon:       couponHandler,
-		Customer:     customerHandler,
-		Subscription: subscriptionHandler,
-		Invoice:      invoiceHandler,
-		Dashboard:    dashboardHandler,
+		Auth:            authHandler,
+		Business:        businessHandler,
+		User:            userHandler,
+		Service:         serviceHandler,
+		Product:         productHandler,
+		Plan:            planHandler,
+		AddOn:           addOnHandler,
+		Coupon:          couponHandler,
+		Customer:        customerHandler,
+		Subscription:    subscriptionHandler,
+		Invoice:         invoiceHandler,
+		Checkout:        checkoutHandler,
+		Merchant:        merchantHandler,
+		PlatformBilling: &platformhttp.Handler{Service: platformService},
+		Dashboard:       dashboardHandler,
 	}, cfg.JWTSecret)
 
 	addr := fmt.Sprintf(":%s", cfg.AppPort)

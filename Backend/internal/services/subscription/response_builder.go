@@ -20,7 +20,7 @@ func (s *SubscriptionService) buildDetailResponse(sub *models.Subscription, busi
 	}
 
 	if sub.NextBillingDate != nil {
-		v := sub.NextBillingDate.Format(time.RFC3339)
+		v := sub.NextBillingDate.Format(time.RFC3339Nano)
 		resp.NextBillingDate = &v
 	}
 	if sub.EndDate != nil {

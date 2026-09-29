@@ -20,4 +20,9 @@ func registerBillingRoutes(g *echo.Group, h *AllHandlers) {
 	g.GET("/invoices", h.Invoice.List, read...)
 	g.GET("/invoices/:id", h.Invoice.GetByID, read...)
 	g.POST("/invoices/:id/mark-paid", h.Invoice.MarkPaid, write...)
+	g.POST("/invoices/:id/checkout-links", h.Checkout.CreateLink, write...)
+	g.GET("/payments", h.Checkout.History, write...)
+	g.GET("/customers/:id/payment-methods", h.Checkout.Methods, write...)
+	g.GET("/subscriptions/:id/autopay", h.Checkout.GetAutopay, write...)
+	g.PUT("/subscriptions/:id/autopay", h.Checkout.SetAutopay, write...)
 }
