@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Contoh toko · PayLanggan</title>
+  <style>
+    body{font:16px/1.5 system-ui,sans-serif;max-width:600px;margin:10vh auto;padding:20px;color:#172033}
+    main{padding:32px;border:1px solid #dbe2ee;border-radius:18px;box-shadow:0 12px 40px #17203312}
+    label{display:block;margin:16px 0 5px}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #abb9cd;border-radius:9px;font:inherit}
+    button{margin-top:22px;padding:12px 22px;background:#2455eb;border:0;border-radius:9px;color:white;font:inherit;cursor:pointer}
+    button:disabled{opacity:.55;cursor:wait}#status{min-height:1.5em}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Contoh website bisnis</h1>
+    <p>Pilih langganan dan bayar tanpa meninggalkan website ini.</p>
+    <form id="purchase">
+      <label for="name">Nama</label><input id="name" name="name" required value="Budi Contoh" />
+      <label for="email">Email</label><input id="email" name="email" type="email" required value="budi@example.com" />
+      <label for="mobile">Nomor ponsel</label><input id="mobile" name="mobile" type="tel" required value="+6281234567890" />
+      <button id="buy" type="submit">Beli langganan</button>
+    </form>
+    <p id="status" role="status"></p>
+  </main>
+  <script src="__WIDGET_URL__"></script>
+  <script>
+    const form = document.getElementById('purchase')
+    const status = document.getElementById('status')
+    const button = document.getElementById('buy')
+    let statusTimer
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault()
+      button.disabled = true
+      status.textContent = 'Menyiapkan tagihan...'
+      try {
+        const response = await fetch('/api/order', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(Object.fromEntries(new FormData(form))),
+        })
+        const order = await response.json()
+        if (!response.ok || !order.checkout_url) throw new Error(order.error || 'Checkout belum tersedia')
+        status.textContent = 'Silakan selesaikan pembayaran.'
+        if (statusTimer) clearInterval(statusTimer)
+        async function verifyOrder() {
+          const check = await fetch('/api/order/' + encodeURIComponent(order.external_order_id))
+          const verified = await check.json()
+          if (verified.invoice_status === 'paid') {
+            status.textContent = 'Pembayaran berhasil dan tercatat lunas.'
+            clearInterval(statusTimer)
+          }
+        }
+        statusTimer = setInterval(() => { verifyOrder().catch(() => {}) }, 3000)
+        const currentTimer = statusTimer
+        setTimeout(() => clearInterval(currentTimer), 5 * 60 * 1000)
+        PayLanggan.open({
+          checkoutUrl: order.checkout_url,
+          onPaid: () => { verifyOrder().catch(() => { status.textContent = 'Pembayaran sedang diverifikasi.' }) },
+          onClose: () => { if (status.textContent === 'Silakan selesaikan pembayaran.') status.textContent = 'Checkout ditutup. Periksa status pesanan sebelum membuat pesanan baru.' },
+        })
+      } catch (error) {
+        status.textContent = error.message || 'Gagal membuka checkout.'
+      } finally {
+        button.disabled = false
+      }
+    })
+  </script>
+</body>
+</html>

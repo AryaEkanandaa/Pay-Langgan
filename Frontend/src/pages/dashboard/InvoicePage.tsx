@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Eye, Printer } from 'lucide-react'
+import { Check, Copy, Eye, Link2, Printer } from 'lucide-react'
 import DashboardPageHeader from '../../components/dashboard/DashboardPageHeader'
 import Modal from '../../components/ui/Modal'
 import Select from '../../components/ui/Select'
@@ -8,12 +8,14 @@ import TableSkeleton from '../../components/ui/skeletons/TableSkeleton'
 import { useAuth } from '../../context/AuthContext'
 import {
   ApiError,
+  createCheckoutLink,
   getInvoice,
   listInvoices,
   markInvoicePaid,
   type Invoice,
   type InvoiceDetail,
   type InvoiceStatus,
+  type CheckoutLink,
 } from '../../lib/api'
 import { formatCurrency } from '../../lib/format'
 
@@ -43,6 +45,8 @@ export default function InvoicePage() {
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [actionID, setActionID] = useState<number | null>(null)
+  const [checkoutLink, setCheckoutLink] = useState<CheckoutLink | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   const loadInvoices = useCallback(async () => {
     if (!token) return
@@ -71,6 +75,8 @@ export default function InvoicePage() {
   async function openDetail(invoice: Invoice) {
     if (!token) return
     setSelectedInvoice(null)
+    setCheckoutLink(null)
+    setLinkCopied(false)
     setDetailLoading(true)
     try {
       setSelectedInvoice(await getInvoice(token, invoice.id))
@@ -78,6 +84,29 @@ export default function InvoicePage() {
       setError(err instanceof ApiError ? err.message : 'Gagal memuat detail invoice.')
     } finally {
       setDetailLoading(false)
+    }
+  }
+
+  async function handleCreateCheckout(invoice: InvoiceDetail) {
+    if (!token) return
+    setActionID(invoice.id)
+    setError(null)
+    try {
+      setCheckoutLink(await createCheckoutLink(token, invoice.id))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Gagal membuat link pembayaran.')
+    } finally {
+      setActionID(null)
+    }
+  }
+
+  async function copyCheckoutLink() {
+    if (!checkoutLink) return
+    try {
+      await navigator.clipboard.writeText(checkoutLink.checkout_url)
+      setLinkCopied(true)
+    } catch {
+      setError('Browser tidak mengizinkan penyalinan otomatis.')
     }
   }
 
@@ -246,14 +275,31 @@ export default function InvoicePage() {
               <div><p className="text-muted">Metode pembayaran</p><p className="mt-1 font-medium capitalize text-ink">{selectedInvoice.payment?.provider || '—'}</p></div>
             </div>
 
+            {checkoutLink && (
+              <div className="border-t border-white/40 pt-4">
+                <label htmlFor="checkout-link" className="text-[12px] font-medium text-body">Link pembayaran</label>
+                <div className="mt-2 flex items-center gap-2">
+                  <input id="checkout-link" readOnly value={checkoutLink.checkout_url} className="min-w-0 flex-1 rounded-lg border border-border bg-white/50 px-3 py-2 text-[12px] text-ink outline-none" />
+                  <button type="button" onClick={copyCheckoutLink} title="Salin link pembayaran" aria-label="Salin link pembayaran" className="glass flex size-9 shrink-0 items-center justify-center rounded-lg text-brand">
+                    {linkCopied ? <Check size={16} /> : <Copy size={16} />}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-wrap justify-end gap-2 border-t border-white/40 pt-4">
               <button type="button" onClick={() => window.print()} className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-semibold text-ink">
                 <Printer size={15} /> Cetak
               </button>
               {canMarkPaid && selectedInvoice.status === 'pending' && (
-                <SubmitButton type="button" onClick={() => handleMarkPaid(selectedInvoice)} disabled={actionID === selectedInvoice.id}>
-                  {actionID === selectedInvoice.id ? 'Memproses...' : 'Tandai Sudah Dibayar'}
-                </SubmitButton>
+                <>
+                  <SubmitButton type="button" variant="secondary" onClick={() => handleCreateCheckout(selectedInvoice)} disabled={actionID === selectedInvoice.id}>
+                    <Link2 size={15} /> {checkoutLink ? 'Buat Link Baru' : 'Buat Link Bayar'}
+                  </SubmitButton>
+                  <SubmitButton type="button" onClick={() => handleMarkPaid(selectedInvoice)} disabled={actionID === selectedInvoice.id}>
+                    {actionID === selectedInvoice.id ? 'Memproses...' : 'Tandai Sudah Dibayar'}
+                  </SubmitButton>
+                </>
               )}
             </div>
           </div>

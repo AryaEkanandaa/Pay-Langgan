@@ -154,6 +154,7 @@
 @layer components {
   .landing-scroll {
     height: 100vh;
+    overflow-x: hidden;
     overflow-y: auto;
     scroll-snap-type: y mandatory;
     scroll-behavior: smooth;
@@ -198,4 +199,9 @@
     transform: none;
     transition: none;
   }
+}
+
+/* The Xendit SDK shows this testing shortcut in Test Mode. Keep it off the customer checkout. */
+.checkout-card-fields .xendit-form-simulation-root {
+  display: none !important;
 }

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Home from './pages/Home'
 import Login from './pages/Login'
@@ -15,11 +16,15 @@ import PengaturanPage from './pages/dashboard/PengaturanPage'
 import PlatformAdminPage from './pages/dashboard/PlatformAdminPage'
 import InvoicePage from './pages/dashboard/InvoicePage'
 import InvoiceCustomizationPage from './pages/dashboard/InvoiceCustomizationPage'
+import PlatformBillingPage from './pages/dashboard/PlatformBillingPage'
+
+const CheckoutPage = lazy(() => import('./pages/CheckoutPage'))
 
 function App() {
   return (
     <Routes>
       <Route path="/" element={<Home />} />
+      <Route path="/checkout/:token" element={<Suspense fallback={<p className="p-6 text-body">Memuat checkout...</p>}><CheckoutPage /></Suspense>} />
 
       <Route element={<RequireGuest />}>
         <Route path="/login" element={<Login />} />
@@ -42,6 +47,7 @@ function App() {
             <Route path="invoices" element={<InvoicePage />} />
           </Route>
           <Route element={<RequireRole roles={['admin']} fallback="/dashboard" />}>
+			<Route path="tagihan-platform" element={<PlatformBillingPage />} />
             <Route path="pengaturan" element={<PengaturanPage />} />
             <Route path="pengaturan/invoice" element={<InvoiceCustomizationPage />} />
           </Route>
