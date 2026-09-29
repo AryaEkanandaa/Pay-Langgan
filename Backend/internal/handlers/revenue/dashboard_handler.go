@@ -26,3 +26,11 @@ func (h *DashboardHandler) Summary(c echo.Context) error {
 
 	return utils.Success(c, "Dashboard summary retrieved successfully", summary)
 }
+
+func (h *DashboardHandler) PlatformSummary(c echo.Context) error {
+	summary, err := h.dashboardService.GetPlatformSummary()
+	if err != nil {
+		return utils.InternalError(c, "failed to retrieve platform dashboard")
+	}
+	return utils.Success(c, "Platform dashboard retrieved successfully", summary)
+}

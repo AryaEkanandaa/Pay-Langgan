@@ -47,7 +47,4 @@ func TestFillYearlyBreakdownReturnsCurrentAndPreviousFourYears(t *testing.T) {
 	if points[2].Income != 12000000 {
 		t.Errorf("expected income from two years ago 12000000, got %v", points[2].Income)
 	}
-	if points[4].Spending != 0 {
-		t.Errorf("expected spending to be 0 until expense tracking exists, got %v", points[4].Spending)
-	}
 }

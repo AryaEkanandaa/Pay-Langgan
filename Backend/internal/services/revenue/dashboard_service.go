@@ -41,29 +41,55 @@ func (s *DashboardService) GetSummary(businessID string, roles ...models.Role) (
 	if err != nil {
 		return nil, err
 	}
+	financials, err := s.repo.Financials(businessID)
+	if err != nil {
+		return nil, err
+	}
+	planRevenue, err := s.repo.RevenueByPlan(businessID)
+	if err != nil {
+		return nil, err
+	}
 
 	summary := &models.DashboardSummary{
-		ActiveCustomers:     activeCustomers,
-		ActiveSubscriptions: activeSubscriptions,
-		MRR:                 mrr,
-		DueInvoices:         dueInvoices,
-		MonthlyPerformance:  fillMonthlyPerformance(monthlyRows),
-		YearlyBreakdown:     fillYearlyBreakdown(yearlyRows),
-		IncomeSharePct:      100,
-		SpendingSharePct:    0,
+		ActiveCustomers:        activeCustomers,
+		ActiveSubscriptions:    activeSubscriptions,
+		MRR:                    mrr,
+		DueInvoices:            dueInvoices,
+		RevenueThisMonth:       financials.RevenueThisMonth,
+		OutstandingAmount:      financials.OutstandingAmount,
+		OverdueAmount:          financials.OverdueAmount,
+		PaymentsSucceeded:      financials.PaymentsSucceeded,
+		PaymentsFailed:         financials.PaymentsFailed,
+		AutopaySucceeded:       financials.AutopaySucceeded,
+		AutopayFailed:          financials.AutopayFailed,
+		NewSubscriptions:       financials.NewSubscriptions,
+		CancelledSubscriptions: financials.CancelledSubscriptions,
+		RevenueByPlan:          planRevenue,
+		MonthlyPerformance:     fillMonthlyPerformance(monthlyRows),
+		YearlyBreakdown:        fillYearlyBreakdown(yearlyRows),
 	}
 
 	if len(roles) > 0 && roles[0] == models.RoleSales {
 		// Sales receives operational metrics only; revenue data stays server-side.
 		summary.MRR = 0
 		summary.DueInvoices = 0
+		summary.RevenueThisMonth = 0
+		summary.OutstandingAmount = 0
+		summary.OverdueAmount = 0
+		summary.PaymentsSucceeded = 0
+		summary.PaymentsFailed = 0
+		summary.AutopaySucceeded = 0
+		summary.AutopayFailed = 0
+		summary.RevenueByPlan = []models.PlanRevenuePoint{}
 		summary.MonthlyPerformance = []models.MonthlyPerformancePoint{}
 		summary.YearlyBreakdown = []models.YearlyBreakdownPoint{}
-		summary.IncomeSharePct = 0
-		summary.SpendingSharePct = 0
 	}
 
 	return summary, nil
+}
+
+func (s *DashboardService) GetPlatformSummary() (models.PlatformDashboardSummary, error) {
+	return s.repo.PlatformSummary()
 }
 
 func fillMonthlyPerformance(rows []revenuerepo.MonthlyRevenuePoint) []models.MonthlyPerformancePoint {
@@ -73,7 +99,7 @@ func fillMonthlyPerformance(rows []revenuerepo.MonthlyRevenuePoint) []models.Mon
 	}
 
 	monthNames := [...]string{"Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"}
-	now := time.Now()
+	now := time.Now().UTC()
 	points := make([]models.MonthlyPerformancePoint, 0, 7)
 	for offset := -6; offset <= 0; offset++ {
 		month := now.AddDate(0, offset, 0)
@@ -92,14 +118,13 @@ func fillYearlyBreakdown(rows []revenuerepo.YearlyRevenuePoint) []models.YearlyB
 		values[row.Year] = row.Income
 	}
 
-	currentYear := time.Now().Year()
+	currentYear := time.Now().UTC().Year()
 	points := make([]models.YearlyBreakdownPoint, 0, 5)
 	for offset := -4; offset <= 0; offset++ {
 		year := strconv.Itoa(currentYear + offset)
 		points = append(points, models.YearlyBreakdownPoint{
-			Year:     year,
-			Income:   values[year],
-			Spending: 0,
+			Year:   year,
+			Income: values[year],
 		})
 	}
 	return points
