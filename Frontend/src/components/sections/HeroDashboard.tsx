@@ -8,7 +8,7 @@ const customers = [
 
 export default function HeroDashboard() {
   return (
-    <figure className="relative mx-auto w-full max-w-[510px] pb-4">
+    <figure className="relative mx-auto min-w-0 w-full max-w-[510px] pb-4">
       <div className="overflow-hidden rounded-[20px] border border-slate-200/80 bg-white shadow-[0_24px_70px_-24px_rgba(39,54,118,0.3)] dark:border-slate-700 dark:bg-[#171e30]">
         <div className="flex items-center gap-4 border-b border-border bg-slate-50/80 px-4 py-3 dark:bg-slate-800/50">
           <div className="flex gap-1.5" aria-hidden="true">

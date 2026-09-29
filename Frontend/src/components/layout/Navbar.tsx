@@ -35,21 +35,25 @@ export default function Navbar() {
               >
                 Halo, {auth.user.name.split(' ')[0]}
               </Link>
-              <button
-                onClick={logout}
-                className={`${buttonBaseClass} ${buttonVariantClass.secondary}`}
-              >
-                Keluar
-              </button>
+              <span className="hidden sm:inline-flex">
+                <button
+                  onClick={logout}
+                  className={`${buttonBaseClass} ${buttonVariantClass.secondary}`}
+                >
+                  Keluar
+                </button>
+              </span>
             </>
           ) : (
             <>
               <Link to="/login" className="hidden text-[14px] font-semibold text-ink sm:inline">
                 Masuk
               </Link>
-              <Link to="/register" className={`${buttonBaseClass} ${buttonVariantClass.primary}`}>
-                Daftar
-              </Link>
+              <span className="hidden sm:inline-flex">
+                <Link to="/register" className={`${buttonBaseClass} ${buttonVariantClass.primary}`}>
+                  Daftar
+                </Link>
+              </span>
             </>
           )}
         </div>
