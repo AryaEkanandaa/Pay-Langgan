@@ -395,14 +395,35 @@ export interface DashboardSummary {
   active_subscriptions: number
   mrr: number
   due_invoices: number
+  revenue_this_month: number
+  outstanding_amount: number
+  overdue_amount: number
+  payments_succeeded: number
+  payments_failed: number
+  autopay_succeeded: number
+  autopay_failed: number
+  new_subscriptions: number
+  cancelled_subscriptions: number
+  revenue_by_plan: Array<{ plan_id: number; name: string; amount: number }>
   monthly_performance: Array<{ month: string; value: number }>
-  yearly_breakdown: Array<{ year: string; income: number; spending: number }>
-  income_share_pct: number
-  spending_share_pct: number
+  yearly_breakdown: Array<{ year: string; income: number }>
 }
 
 export async function getDashboardSummary(token: string) {
   const { data } = await request<DashboardSummary>('/api/v1/dashboard/summary', { token })
+  return data
+}
+
+export interface PlatformDashboardSummary {
+  active_businesses: number
+  past_due_businesses: number
+  revenue_this_month: number
+  outstanding_amount: number
+  failed_autopay_this_month: number
+}
+
+export async function getPlatformDashboardSummary(token: string) {
+  const { data } = await request<PlatformDashboardSummary>('/api/v1/platform/dashboard/summary', { token })
   return data
 }
 
@@ -481,6 +502,61 @@ export async function markInvoicePaid(token: string, id: number) {
   const { data } = await request<InvoiceDetail>(`/api/v1/invoices/${id}/mark-paid`, {
     method: 'POST',
     token,
+  })
+  return data
+}
+
+export interface CheckoutLink {
+  token: string
+  checkout_url: string
+  expires_at: string
+}
+
+export interface PublicCheckout {
+  invoice_number: string
+  amount: number
+  invoice_status: InvoiceStatus
+  checkout_status: 'created' | 'creating' | 'active' | 'completed' | 'expired' | 'failed'
+  customer_name: string
+  customer_email?: string
+  customer_mobile?: string
+  business_name: string
+  plan_name: string
+  expires_at: string
+}
+
+export interface StartCheckoutPayload {
+  name: string
+  email: string
+  mobile: string
+  parent_origin?: string
+}
+
+export interface StartedCheckout {
+  payment_session_id: string
+  mode: 'COMPONENTS'
+  components_sdk_key: string
+  status: 'active'
+  expires_at: string
+}
+
+export async function createCheckoutLink(token: string, invoiceID: number) {
+  const { data } = await request<CheckoutLink>(`/api/v1/invoices/${invoiceID}/checkout-links`, {
+    method: 'POST',
+    token,
+  })
+  return data
+}
+
+export async function getPublicCheckout(token: string) {
+  const { data } = await request<PublicCheckout>(`/api/v1/checkout/${token}`)
+  return data
+}
+
+export async function startPublicCheckout(token: string, payload: StartCheckoutPayload) {
+  const { data } = await request<StartedCheckout>(`/api/v1/checkout/${token}/session`, {
+    method: 'POST',
+    body: payload,
   })
   return data
 }
@@ -638,4 +714,57 @@ export async function resumeSubscription(token: string, id: number) {
     token,
   })
   return data
+}
+
+export interface PlatformPlan {
+  code: string
+  name: string
+  amount: number
+  currency: string
+  billing_cycle: string
+}
+
+export interface PlatformInvoice {
+  id: number
+  amount: number
+  status: 'pending' | 'paid'
+  period_start: string
+  period_end: string
+  due_date: string
+  paid_at: string | null
+  created_at: string
+}
+
+export interface PlatformSubscription {
+  business_id: string
+  status: 'not_subscribed' | 'pending' | 'active' | 'past_due' | 'cancelled'
+  paid_through: string | null
+  next_billing_date: string | null
+  auto_renew: boolean
+  consent_at: string | null
+  pending_invoice?: PlatformInvoice
+  checkout_url?: string
+}
+
+export async function getPlatformPlan(token: string) {
+  return (await request<PlatformPlan>('/api/v1/platform/plan', { token })).data
+}
+
+export async function getPlatformSubscription(token: string) {
+  return (await request<PlatformSubscription>('/api/v1/platform/subscription', { token })).data
+}
+
+export async function getPlatformInvoices(token: string) {
+  return (await request<PlatformInvoice[]>('/api/v1/platform/invoices', { token })).data
+}
+
+export async function startPlatformCheckout(token: string) {
+  return (await request<{ invoice_id: number; amount: number; checkout_url: string; status: string }>(
+    '/api/v1/platform/subscription/checkout',
+    { method: 'POST', token, body: { auto_renew_consent: true } },
+  )).data
+}
+
+export async function cancelPlatformSubscription(token: string) {
+  return request<null>('/api/v1/platform/subscription/cancel', { method: 'POST', token })
 }

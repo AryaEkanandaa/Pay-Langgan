@@ -1,5 +1,6 @@
-import { Bar, BarChart, ResponsiveContainer, XAxis } from 'recharts'
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import type { DashboardSummary } from '../../lib/api'
+import { formatCurrency } from '../../lib/format'
 
 type YearlyBreakdownPoint = DashboardSummary['yearly_breakdown'][number]
 
@@ -18,7 +19,7 @@ export default function YearlyBreakdownChart({ data }: YearlyBreakdownChartProps
           tick={{ fill: 'var(--color-ink)', fontSize: 12, fontWeight: 600 }}
         />
         <Bar dataKey="income" fill="var(--color-brand)" radius={[6, 6, 0, 0]} maxBarSize={16} />
-        <Bar dataKey="spending" fill="var(--color-amber)" radius={[6, 6, 0, 0]} maxBarSize={16} />
+        <Tooltip formatter={(value) => formatCurrency(Number(value))} />
       </BarChart>
     </ResponsiveContainer>
   )

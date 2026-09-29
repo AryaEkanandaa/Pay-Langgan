@@ -9,6 +9,7 @@ import {
 } from 'recharts'
 import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent'
 import type { DashboardSummary } from '../../lib/api'
+import { formatCurrency } from '../../lib/format'
 
 type MonthlyPerformancePoint = DashboardSummary['monthly_performance'][number]
 
@@ -24,8 +25,8 @@ function ChartTooltip({ active, payload }: TooltipContentProps<ValueType, NameTy
     <div className="glass flex items-center gap-2 rounded-full bg-ink/90 px-4 py-2 text-white shadow-lg">
       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-[11px]">●</span>
       <div className="text-left">
-        <p className="text-[13px] font-bold leading-tight">{value.toLocaleString('id-ID')}</p>
-        <p className="text-[10px] text-white/60">Views / hr</p>
+        <p className="text-[13px] font-bold leading-tight">{formatCurrency(value)}</p>
+        <p className="text-[10px] text-white/60">Pembayaran sukses</p>
       </div>
     </div>
   )
