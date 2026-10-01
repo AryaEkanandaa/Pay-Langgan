@@ -9,9 +9,31 @@ belum dihubungkan ke alur pembayaran. Ada dua alur bisnis yang nantinya terpisah
 2. Customer bisnis membayar subscription melalui hosted page PayLanggan dan
    Payment Session Xendit.
 
-Alur kedua sudah memiliki halaman checkout publik, penyimpanan sesi, pembuatan
-Payment Session, dan webhook penyelesaian pembayaran. Platform billing bisnis
-masih dipisahkan dan belum dihubungkan pada tahap ini.
+Alur pelanggan memiliki halaman checkout publik, penyimpanan sesi, Payment Session,
+dan webhook. Tagihan bisnis kepada PayLanggan memakai Payment Session terpisah
+dan webhook platform; token kartu yang disimpan dipakai untuk perpanjangan otomatis.
+
+## Pembayaran bisnis kepada PayLanggan
+
+Pada **Pengaturan → Tagihan PayLanggan**, admin bisnis menyetujui biaya
+Rp300.000/bulan dan debit otomatis. Backend membuat Payment Session Xendit dengan
+`mode=COMPONENTS`, kanal `CARDS`, `allow_save_payment_method=FORCED`, dan
+`card_on_file_type=RECURRING`. Frontend menampilkan formulir kartu Xendit langsung
+di halaman PayLanggan; tidak membuka `payment_link_url` untuk sesi baru.
+
+`POST /api/v1/platform/subscription/checkout` memulai sesi dan mengirim
+`components_sdk_key` sekali kepada admin bisnis. `GET` pada alamat yang sama
+melanjutkan sesi aktif setelah halaman dimuat ulang, tanpa menyimpan SDK key di
+database. Webhook `payment_session.completed` atau rekonsiliasi
+`go run ./cmd/platform-worker` mengubah invoice menjadi `paid` dan menyimpan token
+untuk debit berikutnya. Tampilan berhasil saja tidak mengubah status invoice.
+
+Untuk uji Xendit Test Mode, `APP_PUBLIC_URL` dan `XENDIT_RETURN_BASE_URL` harus
+menunjuk origin HTTPS frontend yang sama, misalnya tunnel frontend yang sedang
+aktif. Webhook platform harus menuju
+`https://<tunnel-backend>/api/v1/webhooks/xendit/platform-payment-sessions`.
+Sesi lama yang dibuat dengan `PAYMENT_LINK` tetap tersimpan sampai selesai atau
+kedaluwarsa; setelah itu admin dapat memulai sesi Components baru.
 
 ## Payment Session kartu
 
@@ -75,6 +97,30 @@ melalui endpoint checkout publik. Setelah redirect autentikasi kartu, frontend
 mengambil ulang sesi aktif dan mencoba melanjutkan SDK. Return URL dan event SDK
 bukan bukti pembayaran; invoice baru ditampilkan lunas setelah backend menerima
 webhook terautentikasi atau menyelesaikan rekonsiliasi dengan API Xendit.
+
+Jika checkout aktif pertama kali dibuka di halaman penuh lalu dibuka lewat
+drop-in, URL kembali pada sesi Xendit tetap memakai nilai saat sesi dibuat.
+Halaman checkout menyimpan `parent_origin` untuk tab iframe tersebut di
+`sessionStorage` berdasarkan token checkout. Setelah kembali dari redirect,
+halaman dapat mengirim status lunas ke website induk meskipun URL kembali tidak
+memuat `parent_origin`. Nilai ini hanya dipakai untuk notifikasi UI; status
+pembayaran tetap berasal dari backend.
+
+Percobaan kartu yang ditolak dapat menghasilkan event SDK `submission-end`
+dengan detail kesalahan tanpa mengakhiri Payment Session. Frontend menampilkan
+pesan agar pelanggan dapat mencoba lagi; invoice tetap pending. Endpoint webhook
+di bawah ini menerima event siklus hidup Payment Session saja. Jika diperlukan
+riwayat setiap percobaan gagal di backend, webhook Payments API seperti
+`payment.failure` perlu dikonfigurasi dan ditangani pada endpoint terpisah,
+bukan dikirim ke endpoint Payment Session.
+
+Untuk memeriksa alur gagal di Xendit Test Mode, buat invoice khusus sandbox
+dengan nominal Rp10.051 dan gunakan kartu uji yang tidak memerlukan challenge.
+Menurut [daftar simulasi kartu Xendit](https://docs.xendit.co/docs/cards-simulate-card-scenarios),
+nominal tersebut mensimulasikan `EXPIRED_CARD` di luar Vietnam. Pastikan halaman
+menampilkan percobaan belum berhasil, invoice tetap pending, dan checkout masih
+dapat digunakan untuk percobaan berikutnya selama sesi Xendit aktif. Jangan
+gunakan invoice operasional untuk pengujian ini.
 
 Xendit mengirim event `payment_session.completed` atau
 `payment_session.expired` ke

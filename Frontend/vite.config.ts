@@ -8,7 +8,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     server: {
-      allowedHosts: env.VITE_ALLOWED_HOST ? [env.VITE_ALLOWED_HOST] : [],
+      allowedHosts: env.VITE_ALLOWED_HOST
+        ? env.VITE_ALLOWED_HOST.split(',').map((host) => host.trim()).filter(Boolean)
+        : [],
     },
   }
 })
