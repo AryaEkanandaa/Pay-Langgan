@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Langganan Kelana Workspace</title>
+
+  <script src="https://jamie-log-michel-pope.trycloudflare.com/paylanggan.js"
+    data-pl-site="pl_site_g9nwdyhaW-1ElEtnu0JdbXL0"
+    data-pl-api-url="https://scenes-gabriel-pharmacy-appendix.trycloudflare.com"></script>
+
+  <style>
+    body {
+      max-width: 640px;
+      margin: 60px auto;
+      padding: 0 20px;
+      font: 16px Arial, sans-serif;
+    }
+
+    .paket {
+      padding: 24px;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+    }
+
+    button {
+      padding: 12px 18px;
+      color: white;
+      background: #3155f5;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Kelana Workspace</h1>
+  <p>Pilih paket untuk mulai berlangganan.</p>
+
+  <section class="paket">
+    <h2>Profesional Bulanan</h2>
+    <p>Rp100.000 per bulan</p>
+
+    <button data-pl-checkout data-pl-plan="pl_plan_64d7c2c40189d19be8cc53d2">Langganan Profesional Bulanan</button>
+    <p id="status" aria-live="polite"></p>
+  </section>
+
+  <section class="paket">
+    <h2>Profesional Tahunan</h2>
+    <p>Rp1.000.000 per Tahun</p>
+
+    <button data-pl-checkout data-pl-plan="pl_plan_b0d0c07855986977b74ed9f4">Langganan Professional Tahunan</button>
+    <p id="status" aria-live="polite"></p>
+  </section>
+
+  <section class="paket">
+    <h2>Enterprise Bulanan</h2>
+    <p>Rp200.000 per Bulan</p>
+
+    <button data-pl-checkout data-pl-plan="pl_plan_b4fa341e33f178c698bb955a">Langganan Enterprise Bulanan</button>
+    <p id="status" aria-live="polite"></p>
+  </section>
+
+  <script>
+    document.addEventListener('paylanggan:paid', () => {
+      document.getElementById('status').textContent = 'Pembayaran berhasil.'
+    })
+
+    document.addEventListener('paylanggan:error', (event) => {
+      document.getElementById('status').textContent = event.detail.message
+    })
+  </script>
+</body>
+
+</html>

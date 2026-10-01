@@ -16,7 +16,7 @@ function element(tag) {
 }
 const body = element('body')
 const document = {
-  currentScript: { src: 'https://checkout.example/paylanggan.js' },
+  currentScript: { src: 'https://checkout.example/paylanggan.js', getAttribute() { return null } },
   head: element('head'), body, activeElement: element('button'),
   createElement: element,
   addEventListener(name, handler) { listeners.set(`document:${name}`, handler) },

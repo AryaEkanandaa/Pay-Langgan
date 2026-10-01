@@ -1,18 +1,33 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AlertCircle, CheckCircle2, Clock3, CreditCard, ShieldCheck } from 'lucide-react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { XenditComponents } from 'xendit-components-web'
+import { XenditComponents, type XenditSubmissionEndEvent } from 'xendit-components-web'
 import Input from '../components/ui/Input'
 import Logo from '../components/ui/Logo'
 import SubmitButton from '../components/ui/SubmitButton'
 import { ApiError, getPublicCheckout, startPublicCheckout, type PublicCheckout, type StartedCheckout } from '../lib/api'
 import { formatCurrency } from '../lib/format'
 
+function isAllowedParentOrigin(value: string): boolean {
+  try {
+    const origin = new URL(value)
+    return origin.origin === value && (origin.protocol === 'https:' ||
+      (origin.protocol === 'http:' && (origin.hostname === 'localhost' || origin.hostname === '127.0.0.1')))
+  } catch {
+    return false
+  }
+}
+
 export default function CheckoutPage() {
   const { token = '' } = useParams()
   const [searchParams] = useSearchParams()
-  const returningFromXendit = [...searchParams.keys()].some((key) => key !== 'parent_origin')
-  const parentOrigin = searchParams.get('parent_origin')
+  const returningFromXendit = searchParams.has('token_request_id')
+  const parentOriginParam = searchParams.get('parent_origin')
+  const parentOriginKey = `paylanggan:parent-origin:${token}`
+  let parentOrigin = parentOriginParam
+  if (!parentOrigin && window.parent !== window) {
+    try { parentOrigin = window.sessionStorage.getItem(parentOriginKey) } catch { /* Storage may be unavailable. */ }
+  }
   const [checkout, setCheckout] = useState<PublicCheckout | null>(null)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -27,17 +42,22 @@ export default function CheckoutPage() {
   const cardContainer = useRef<HTMLDivElement>(null)
   const componentsRef = useRef<XenditComponents | null>(null)
   const paidNotified = useRef(false)
-  const resumedSession = useRef(false)
 
   useEffect(() => {
-    if (checkout?.invoice_status !== 'paid' || !parentOrigin || paidNotified.current || window.parent === window) return
+    if (!parentOriginParam || window.parent === window || !isAllowedParentOrigin(parentOriginParam)) return
     try {
-      const origin = new URL(parentOrigin)
-      if (origin.origin !== parentOrigin || (origin.protocol !== 'https:' && origin.hostname !== 'localhost' && origin.hostname !== '127.0.0.1')) return
+      window.sessionStorage.setItem(parentOriginKey, parentOriginParam)
+    } catch { /* Storage may be unavailable. */ }
+  }, [parentOriginParam, parentOriginKey])
+
+  useEffect(() => {
+    if (checkout?.invoice_status !== 'paid' || !parentOrigin || paidNotified.current || window.parent === window || !isAllowedParentOrigin(parentOrigin)) return
+    try {
       window.parent.postMessage({ type: 'paylanggan:checkout-status', status: 'paid' }, parentOrigin)
       paidNotified.current = true
-    } catch { /* Ignore invalid parent origin. */ }
-  }, [checkout?.invoice_status, parentOrigin])
+      try { window.sessionStorage.removeItem(parentOriginKey) } catch { /* Storage may be unavailable. */ }
+    } catch { /* Ignore an unavailable parent window. */ }
+  }, [checkout?.invoice_status, parentOrigin, parentOriginKey])
 
   useEffect(() => {
     let active = true
@@ -57,7 +77,6 @@ export default function CheckoutPage() {
               parent_origin: parentOrigin ?? undefined,
             })
             if (active) {
-              resumedSession.current = true
               setSession(resumed)
               setIsVerifying(false)
             }
@@ -80,7 +99,9 @@ export default function CheckoutPage() {
     const target = cardContainer.current
     const components = new XenditComponents({
       componentsSdkKey: session.components_sdk_key,
-      resume: returningFromXendit || resumedSession.current,
+      // Xendit only accepts resume after redirecting back with its query parameters.
+      // Reopening an active checkout is a regular SDK initialization.
+      resume: returningFromXendit,
     })
     componentsRef.current = components
     let cardElement: HTMLElement | null = null
@@ -96,10 +117,23 @@ export default function CheckoutPage() {
     }
     const onReady = () => setIsCardReady(true)
     const onNotReady = () => setIsCardReady(false)
-    const onBegin = () => setIsSubmitting(true)
-    const onEnd = () => setIsSubmitting(false)
+    const onBegin = () => {
+      setError(null)
+      setIsSubmitting(true)
+    }
+    const onEnd = (event: XenditSubmissionEndEvent) => {
+      setIsSubmitting(false)
+      if (event.developerErrorMessage?.type === 'NETWORK_ERROR') {
+        setError('Status pembayaran belum dapat dipastikan. Tunggu pembaruan tagihan sebelum mencoba lagi.')
+      } else if (event.developerErrorMessage || event.userErrorMessage?.length) {
+        setError('Percobaan pembayaran belum berhasil. Periksa pesan dari penyedia pembayaran, lalu coba lagi.')
+      } else if (event.reason === 'ACTION_ABORTED' || event.reason === 'REQUEST_ABORTED') {
+        setError('Pembayaran dibatalkan. Anda dapat mencoba lagi.')
+      }
+    }
     const onComplete = () => {
       setIsSubmitting(false)
+      setError(null)
       setIsVerifying(true)
       void getPublicCheckout(token).then(setCheckout).catch(() => undefined)
     }
@@ -154,7 +188,6 @@ export default function CheckoutPage() {
         throw new Error('Pembayaran belum dapat disiapkan. Silakan coba lagi.')
       }
       setSession(started)
-      resumedSession.current = false
       setIsVerifying(false)
     } catch (err) {
       setError(err instanceof ApiError ? 'Pembayaran belum dapat dimulai. Periksa kembali data kontak Anda atau coba lagi nanti.' : err instanceof Error ? err.message : 'Pembayaran belum dapat dimulai. Silakan coba lagi.')

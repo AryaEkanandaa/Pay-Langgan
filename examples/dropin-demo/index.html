@@ -1,70 +1,144 @@
 <!doctype html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Contoh toko · PayLanggan</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f3ec">
+  <meta name="description" content="Kelana Workspace, ruang kerja yang membantu tim bergerak bersama.">
+  <title>Kelana Workspace — Ruang untuk tim Anda</title>
   <style>
-    body{font:16px/1.5 system-ui,sans-serif;max-width:600px;margin:10vh auto;padding:20px;color:#172033}
-    main{padding:32px;border:1px solid #dbe2ee;border-radius:18px;box-shadow:0 12px 40px #17203312}
-    label{display:block;margin:16px 0 5px}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #abb9cd;border-radius:9px;font:inherit}
-    button{margin-top:22px;padding:12px 22px;background:#2455eb;border:0;border-radius:9px;color:white;font:inherit;cursor:pointer}
-    button:disabled{opacity:.55;cursor:wait}#status{min-height:1.5em}
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#193c32;background:#f4f3ec}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0}a{color:inherit;text-decoration:none}button,input{font:inherit}button{cursor:pointer}a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid #c89c56;outline-offset:3px}
+    .wrap{width:min(1140px,calc(100% - 40px));margin:auto}.header{position:sticky;top:0;z-index:3;background:#f4f3ecee;border-bottom:1px solid #e2e5da;backdrop-filter:blur(12px)}.nav{height:74px;display:flex;align-items:center;justify-content:space-between;gap:20px}.brand{display:flex;align-items:center;gap:10px;font-size:19px;font-weight:800;letter-spacing:-.05em}.mark{display:grid;place-items:center;width:35px;height:35px;border-radius:11px 11px 11px 4px;background:#1b493b;color:white;font-size:22px}.links{display:flex;gap:30px;color:#577064;font-size:14px;font-weight:650}.button{display:inline-flex;justify-content:center;align-items:center;gap:9px;min-height:47px;padding:11px 19px;border-radius:11px;border:1px solid transparent;font-size:14px;font-weight:750;transition:transform .2s,background .2s}.button:hover{transform:translateY(-2px)}.button:disabled{opacity:.6;cursor:wait;transform:none}.primary{background:#1b493b;color:#fff}.primary:hover{background:#28634d}.outline{border-color:#b4c1b4;background:transparent}.pale{background:#e8eee7}.small{min-height:39px;padding:8px 14px}
+    .eyebrow{margin:0 0 16px;color:#66836c;text-transform:uppercase;letter-spacing:.17em;font-size:12px;font-weight:800}.hero{padding:95px 0 110px;overflow:hidden}.hero-grid,.price-grid{display:grid;grid-template-columns:1fr 1fr;gap:70px;align-items:center}.hero h1{font-size:clamp(46px,5.5vw,74px);line-height:1.06;letter-spacing:-.075em;margin:0}.hero h1 em{color:#b98048;font-style:normal}.lead{font-size:18px;line-height:1.7;color:#607469;max-width:500px;margin:23px 0 28px}.hero-actions{display:flex;gap:11px;flex-wrap:wrap}.hint{color:#718478;font-size:13px;margin-top:23px}.hint:before{content:"";display:inline-block;width:7px;height:7px;margin-right:9px;border-radius:50%;background:#82aa82}
+    .visual{position:relative;padding:23px;background:#dce7da;border-radius:23px;box-shadow:20px 20px 0 #e7e8df}.window{background:white;border:1px solid #d6e0d6;border-radius:14px;overflow:hidden;box-shadow:0 20px 42px #26432c1e}.window-top{display:flex;justify-content:space-between;padding:16px 18px;border-bottom:1px solid #e9eee9;color:#607e6c;font-size:11px;font-weight:700}.dots{letter-spacing:3px;color:#b3c7b7}.window-body{display:grid;grid-template-columns:95px 1fr;min-height:300px}.sidebar{padding:22px 12px;background:#f7f9f6;border-right:1px solid #e9eee9}.sidebar i{display:block;height:8px;margin-bottom:19px;border-radius:6px;background:#d9e4da}.sidebar i:first-child{width:75%;background:#6b9777}.window-main{padding:25px}.mock-label{font-size:10px;letter-spacing:.13em;color:#86a18e;font-weight:800;text-transform:uppercase}.mock-heading{margin:7px 0 6px;font-size:19px;font-weight:800;letter-spacing:-.05em}.mock-sub{margin:0 0 23px;color:#8b9d91;font-size:11px}.mock-row{display:flex;align-items:center;justify-content:space-between;gap:9px;border-top:1px solid #ecf0eb;padding:14px 0;font-size:11px;font-weight:650}.mock-item{display:flex;align-items:center;gap:8px}.avatar{display:grid;place-items:center;flex:none;width:23px;height:23px;border-radius:50%;background:#e8c7a7;color:#69503c;font-size:10px}.avatar.alt{background:#d4e2d4;color:#3f6646}.tag{padding:5px 7px;border-radius:5px;background:#e8f2e8;color:#4b7954;font-size:9px}.tag.gold{background:#fbf0d9;color:#9a753f}.float{position:absolute;right:-18px;bottom:-18px;background:white;padding:12px 16px;border-radius:11px;box-shadow:0 14px 30px #26432c25;color:#7b8e80;font-size:11px}.float strong{display:block;color:#27553d;font-size:17px}
+    .features{background:#eaf0e8;padding:79px 0}.section-title{max-width:660px;margin-bottom:35px}.section-title h2,.price-copy h2{font-size:clamp(33px,3.7vw,47px);line-height:1.13;letter-spacing:-.06em;margin:0}.section-title p:last-child,.price-copy>p:not(.eyebrow){line-height:1.7;color:#66796c}.feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.feature{background:white;border:1px solid #e0e8dd;border-radius:18px;padding:26px}.icon{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:#edf4e9;color:#3f6a4c;font-size:22px}.feature h3{margin:20px 0 8px;font-size:17px;letter-spacing:-.035em}.feature p{margin:0;color:#6d8072;font-size:14px;line-height:1.7}
+    .pricing{padding:100px 0 115px}.price-grid{align-items:start}.price-copy{padding-top:37px}.checks{list-style:none;padding:0;margin:30px 0;display:grid;gap:15px;color:#3e5948;font-size:14px}.checks li:before{content:"✓";display:inline-grid;place-items:center;width:21px;height:21px;margin-right:10px;border-radius:50%;background:#e0ecdb;color:#386c43;font-weight:800}.card{padding:32px;border:1px solid #dde6da;border-radius:22px;background:white;box-shadow:0 24px 65px #2b4d3512}.card-head{display:flex;align-items:start;justify-content:space-between;gap:12px}.card-head small{font-size:11px;color:#66806e;font-weight:750;letter-spacing:.12em;text-transform:uppercase}.card-head h3{margin:6px 0 0;font-size:25px;letter-spacing:-.05em}.badge{white-space:nowrap;background:#e8f2e7;color:#3c7350;border-radius:6px;padding:7px 9px;font-size:11px;font-weight:750}.price{font-size:39px;letter-spacing:-.07em;font-weight:800;margin:20px 0 0}.price small{font-size:15px;letter-spacing:0;font-weight:500;color:#819085}.caption{font-size:12px;color:#859489;margin:3px 0 21px}.divider{height:1px;background:#e8ede5;margin-bottom:22px}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field{margin-bottom:16px}.field label{display:block;margin-bottom:8px;color:#3b5c48;font-size:12px;font-weight:750}.field input{width:100%;min-height:46px;padding:10px 12px;border:1px solid #d8e1d5;border-radius:9px;background:#fbfcfa;color:#193c32}.field input::placeholder{color:#a1ada2}.submit{width:100%;margin-top:5px}.secure{text-align:center;color:#829185;font-size:11px;margin:14px 0 0}.panel{margin-top:22px;padding:16px 18px;border:1px solid #d9e7d7;border-radius:12px;background:#f0f5ee}.panel[hidden],.actions[hidden]{display:none}.panel[data-tone=success]{background:#e9f6e9;border-color:#b3ddb9}.panel[data-tone=error]{background:#fff0eb;border-color:#eec9bc}.panel-title{margin:0 0 5px;font-size:14px;font-weight:800}.panel-message{margin:0;color:#607367;font-size:13px;line-height:1.55}.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}.actions .button{min-height:37px;padding:8px 11px;font-size:12px}.footer{padding:34px 0;background:#193e32;color:white}.footer-inner{display:flex;align-items:center;justify-content:space-between;gap:20px}.footer p{font-size:12px;color:#a8c0ad}.footer .mark{background:#e7eee4;color:#193e32}
+    @media(max-width:800px){.hero-grid,.price-grid{gap:35px}.visual{padding:15px}.window-body{min-height:270px}}@media(max-width:680px){.wrap{width:min(100% - 32px,520px)}.nav{height:66px}.links{display:none}.hero{padding:60px 0 76px}.hero-grid,.price-grid{grid-template-columns:1fr;gap:58px}.hero h1{font-size:clamp(43px,10vw,61px)}.lead{font-size:16px}.visual{margin-right:14px}.features{padding:65px 0}.feature-grid{grid-template-columns:1fr}.pricing{padding:75px 0 90px}.price-copy{padding:0}.card{padding:23px}.form-row{grid-template-columns:1fr;gap:0}.footer-inner{align-items:start;flex-direction:column}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}}
   </style>
 </head>
 <body>
-  <main>
-    <h1>Contoh website bisnis</h1>
-    <p>Pilih langganan dan bayar tanpa meninggalkan website ini.</p>
-    <form id="purchase">
-      <label for="name">Nama</label><input id="name" name="name" required value="Budi Contoh" />
-      <label for="email">Email</label><input id="email" name="email" type="email" required value="budi@example.com" />
-      <label for="mobile">Nomor ponsel</label><input id="mobile" name="mobile" type="tel" required value="+6281234567890" />
-      <button id="buy" type="submit">Beli langganan</button>
-    </form>
-    <p id="status" role="status"></p>
+  <header class="header"><nav class="wrap nav" aria-label="Navigasi utama"><a class="brand" href="#atas" aria-label="Kelana Workspace, kembali ke atas"><span class="mark">K</span>Kelana Workspace</a><div class="links"><a href="#keunggulan">Keunggulan</a><a href="#harga">Harga</a></div><a class="button primary small" href="#harga">Mulai sekarang ↗</a></nav></header>
+  <main id="atas">
+    <section class="hero"><div class="wrap hero-grid"><div><p class="eyebrow">Ruang kerja untuk tim yang terus bergerak</p><h1>Kerja bersama, <em>lebih leluasa.</em></h1><p class="lead">Rencana, tugas, dan dokumen tim tersusun di satu tempat. Setiap orang tahu apa yang sedang dikerjakan dan apa langkah berikutnya.</p><div class="hero-actions"><a class="button primary" href="#harga">Pilih langganan ↗</a><a class="button outline" href="#keunggulan">Jelajahi fitur</a></div><p class="hint">Satu ruang yang rapi untuk seluruh tim Anda.</p></div><div class="visual" aria-label="Ilustrasi ruang kerja Kelana"><div class="window" aria-hidden="true"><div class="window-top"><span>Kelana / Ruang tim</span><span class="dots">● ● ●</span></div><div class="window-body"><div class="sidebar"><i></i><i></i><i></i><i></i></div><div class="window-main"><span class="mock-label">Ruang kerja</span><div class="mock-heading">Peluncuran musim baru</div><p class="mock-sub">Semua pekerjaan tim, di satu tampilan.</p><div class="mock-row"><span class="mock-item"><span class="avatar">A</span>Susun rencana konten</span><span class="tag">Selesai</span></div><div class="mock-row"><span class="mock-item"><span class="avatar alt">R</span>Siapkan materi desain</span><span class="tag gold">Berjalan</span></div><div class="mock-row"><span class="mock-item"><span class="avatar">N</span>Tinjau halaman baru</span><span class="tag gold">Berjalan</span></div></div></div></div><div class="float" aria-hidden="true">Fokus tim hari ini<strong>Terus bergerak ↗</strong></div></div></div></section>
+    <section class="features" id="keunggulan"><div class="wrap"><div class="section-title"><p class="eyebrow">Dibuat untuk bekerja bersama</p><h2>Semua yang dibutuhkan tim, tanpa ruang yang berantakan.</h2><p>Beri pekerjaan tempat yang jelas, supaya tim punya lebih banyak waktu untuk menyelesaikannya.</p></div><div class="feature-grid"><article class="feature"><span class="icon" aria-hidden="true">▦</span><h3>Pekerjaan lebih tertata</h3><p>Kelompokkan tugas dan tenggat agar setiap langkah mudah diikuti.</p></article><article class="feature"><span class="icon" aria-hidden="true">◫</span><h3>Dokumen selalu dekat</h3><p>Simpan bahan kerja bersama proyek yang membutuhkannya.</p></article><article class="feature"><span class="icon" aria-hidden="true">✳</span><h3>Tim tetap searah</h3><p>Lihat perkembangan pekerjaan dan lanjutkan dari konteks yang sama.</p></article></div></div></section>
+    <section class="pricing" id="harga"><div class="wrap price-grid"><div class="price-copy"><p class="eyebrow">Satu langkah untuk memulai</p><h2>Ruang yang siap tumbuh bersama tim Anda.</h2><p>Pilih paket Profesional Bulanan untuk membantu tim bekerja dengan lebih tenang dan terarah.</p><ul class="checks"><li>Akses ruang kerja untuk kolaborasi tim</li><li>Pengelolaan tugas, proyek, dan dokumen</li><li>Tagihan bulanan yang mudah dipantau</li></ul></div><div class="card"><div class="card-head"><div><small>Paket langganan</small><h3>Profesional Bulanan</h3></div><span class="badge">Pilihan tim</span></div><p class="price">Rp100.000 <small>/bulan</small></p><p class="caption">Pembayaran pertama diselesaikan setelah Anda melanjutkan.</p><div class="divider"></div><form id="purchase"><div class="form-row"><div class="field"><label for="name">Nama lengkap</label><input id="name" name="name" autocomplete="name" placeholder="Nama Anda" maxlength="120" required></div><div class="field"><label for="email">Alamat email</label><input id="email" name="email" type="email" autocomplete="email" placeholder="nama@perusahaan.com" maxlength="254" required></div></div><div class="field"><label for="mobile">Nomor ponsel</label><input id="mobile" name="mobile" type="tel" autocomplete="tel" inputmode="tel" placeholder="+6281234567890" maxlength="20" required></div><button class="button primary submit" id="buy" type="submit">Lanjutkan ke pembayaran ↗</button><p class="secure">Pembayaran kartu diproses melalui PayLanggan dan Xendit.</p></form><div class="panel" id="order-panel" role="status" aria-live="polite" hidden><p class="panel-title" id="order-title"></p><p class="panel-message" id="order-message"></p><div class="actions" id="order-actions" hidden><button class="button primary" id="resume" type="button">Lanjutkan pembayaran</button><button class="button pale" id="refresh" type="button">Periksa status</button><button class="button pale" id="new-order" type="button">Buat pesanan baru</button></div></div></div></div></section>
   </main>
+  <footer class="footer"><div class="wrap footer-inner"><a class="brand" href="#atas"><span class="mark">K</span>Kelana Workspace</a><p>Ruang untuk pekerjaan terbaik tim Anda.</p></div></footer>
   <script src="__WIDGET_URL__"></script>
   <script>
     const form = document.getElementById('purchase')
-    const status = document.getElementById('status')
-    const button = document.getElementById('buy')
-    let statusTimer
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault()
-      button.disabled = true
-      status.textContent = 'Menyiapkan tagihan...'
+    const buy = document.getElementById('buy')
+    const panel = document.getElementById('order-panel')
+    const title = document.getElementById('order-title')
+    const message = document.getElementById('order-message')
+    const actions = document.getElementById('order-actions')
+    const resume = document.getElementById('resume')
+    const refresh = document.getElementById('refresh')
+    const newOrder = document.getElementById('new-order')
+    const storageKey = 'kelana_current_order'
+    let currentOrder = null
+    let statusTimer = null
+    let checking = false
+    let creating = false
+
+    function showStatus(heading, detail, tone = 'neutral', showActions = false) {
+      panel.hidden = false
+      panel.dataset.tone = tone
+      title.textContent = heading
+      message.textContent = detail
+      actions.hidden = !showActions
+      resume.hidden = !currentOrder?.checkout_url || currentOrder.invoice_status === 'paid'
+      refresh.hidden = !currentOrder || currentOrder.invoice_status === 'paid'
+      newOrder.hidden = !currentOrder || currentOrder.invoice_status === 'paid'
+    }
+    function remember(order) {
+      currentOrder = { external_order_id: order.external_order_id, checkout_url: order.checkout_url, invoice_status: order.invoice_status }
+      sessionStorage.setItem(storageKey, JSON.stringify(currentOrder))
+    }
+    function stopPolling() {
+      if (statusTimer) clearInterval(statusTimer)
+      statusTimer = null
+    }
+    async function verifyOrder() {
+      if (!currentOrder || checking) return
+      checking = true
+      const reference = currentOrder.external_order_id
       try {
-        const response = await fetch('/api/order', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(Object.fromEntries(new FormData(form))),
-        })
+        const response = await fetch('/api/order/' + encodeURIComponent(reference), { cache: 'no-store' })
         const order = await response.json()
-        if (!response.ok || !order.checkout_url) throw new Error(order.error || 'Checkout belum tersedia')
-        status.textContent = 'Silakan selesaikan pembayaran.'
-        if (statusTimer) clearInterval(statusTimer)
-        async function verifyOrder() {
-          const check = await fetch('/api/order/' + encodeURIComponent(order.external_order_id))
-          const verified = await check.json()
-          if (verified.invoice_status === 'paid') {
-            status.textContent = 'Pembayaran berhasil dan tercatat lunas.'
-            clearInterval(statusTimer)
-          }
+        if (currentOrder?.external_order_id !== reference) return
+        if (!response.ok) throw new Error(order.error || 'Status pesanan belum dapat diperiksa.')
+        currentOrder.invoice_status = order.invoice_status
+        sessionStorage.setItem(storageKey, JSON.stringify(currentOrder))
+        if (order.invoice_status === 'paid') {
+          stopPolling()
+          form.hidden = true
+          showStatus('Pembayaran berhasil', 'Pembayaran Anda telah tercatat. Terima kasih sudah bergabung dengan Kelana Workspace.', 'success')
+        } else if (['failed', 'cancelled', 'expired'].includes(order.invoice_status)) {
+          stopPolling()
+          showStatus('Pembayaran belum selesai', 'Status tagihan: ' + order.invoice_status + '. Hubungi Kelana Workspace bila Anda membutuhkan bantuan.', 'error', true)
+          resume.hidden = true
+        } else {
+          showStatus('Menunggu pembayaran', 'Selesaikan pembayaran pada jendela yang terbuka. Status akan diperbarui setelah pembayaran tercatat.', 'neutral', true)
         }
-        statusTimer = setInterval(() => { verifyOrder().catch(() => {}) }, 3000)
-        const currentTimer = statusTimer
-        setTimeout(() => clearInterval(currentTimer), 5 * 60 * 1000)
+      } catch (error) {
+        if (currentOrder?.external_order_id === reference) showStatus('Status belum tersedia', error.message || 'Coba periksa kembali beberapa saat lagi.', 'error', true)
+      } finally {
+        checking = false
+      }
+    }
+    function startPolling() {
+      stopPolling()
+      statusTimer = setInterval(() => { verifyOrder() }, 3000)
+      const timer = statusTimer
+      setTimeout(() => { if (statusTimer === timer) stopPolling() }, 5 * 60 * 1000)
+    }
+    function openCheckout() {
+      if (!currentOrder?.checkout_url) return
+      try {
         PayLanggan.open({
-          checkoutUrl: order.checkout_url,
-          onPaid: () => { verifyOrder().catch(() => { status.textContent = 'Pembayaran sedang diverifikasi.' }) },
-          onClose: () => { if (status.textContent === 'Silakan selesaikan pembayaran.') status.textContent = 'Checkout ditutup. Periksa status pesanan sebelum membuat pesanan baru.' },
+          checkoutUrl: currentOrder.checkout_url,
+          onPaid: () => { verifyOrder() },
+          onClose: () => { if (currentOrder?.invoice_status !== 'paid') showStatus('Pembayaran belum selesai', 'Anda dapat melanjutkan pembayaran atau memeriksa status pesanan ini.', 'neutral', true) },
         })
       } catch (error) {
-        status.textContent = error.message || 'Gagal membuka checkout.'
+        showStatus('Jendela pembayaran belum dapat dibuka', error.message || 'Coba lagi atau muat ulang halaman.', 'error', true)
+      }
+    }
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault()
+      if (creating) return
+      if (currentOrder) { openCheckout(); return }
+      creating = true
+      buy.disabled = true
+      showStatus('Menyiapkan pembayaran', 'Kami sedang menyiapkan tagihan Anda.')
+      try {
+        const response = await fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) })
+        const order = await response.json()
+        if (!response.ok || !order.checkout_url || !order.external_order_id) throw new Error(order.error || 'Pembayaran belum tersedia. Silakan coba lagi.')
+        remember(order)
+        showStatus('Pembayaran siap', 'Lanjutkan pembayaran pada jendela yang terbuka.', 'neutral', true)
+        startPolling()
+        openCheckout()
+      } catch (error) {
+        showStatus('Belum dapat menyiapkan pembayaran', error.message || 'Silakan coba lagi.', 'error')
       } finally {
-        button.disabled = false
+        creating = false
+        buy.disabled = false
       }
     })
+    resume.addEventListener('click', openCheckout)
+    refresh.addEventListener('click', verifyOrder)
+    newOrder.addEventListener('click', () => { stopPolling(); currentOrder = null; sessionStorage.removeItem(storageKey); panel.hidden = true; form.hidden = false })
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
+      if (saved?.external_order_id && saved?.checkout_url) {
+        currentOrder = saved
+        showStatus('Pesanan Anda ditemukan', 'Memeriksa status pembayaran terakhir...', 'neutral', true)
+        verifyOrder()
+        startPolling()
+      }
+    } catch { sessionStorage.removeItem(storageKey) }
   </script>
 </body>
 </html>
