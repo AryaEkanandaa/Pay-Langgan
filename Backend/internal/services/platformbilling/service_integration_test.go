@@ -24,9 +24,16 @@ type fakeProvider struct {
 }
 
 func (f *fakeProvider) VerifyCallbackToken(token string) bool { return token == "test-token" }
-func (f *fakeProvider) CreateHostedSession(_ context.Context, r provider.HostedSessionRequest) (*provider.XenditSessionResponse, error) {
-	s := &provider.XenditSessionResponse{PaymentSessionID: "ps-test", ReferenceID: r.ReferenceID, Amount: r.Amount, Currency: "IDR", Mode: "PAYMENT_LINK", Status: "ACTIVE", PaymentLinkURL: "https://test.invalid/pay"}
+func (f *fakeProvider) CreatePlatformComponentsSession(_ context.Context, r provider.PlatformComponentsRequest) (*provider.XenditSessionResponse, error) {
+	s := &provider.XenditSessionResponse{PaymentSessionID: "ps-test", ReferenceID: r.ReferenceID, Amount: r.Amount, Currency: "IDR", Mode: "COMPONENTS", Status: "ACTIVE", ComponentsSDKKey: "sdk-test", ExpiresAt: time.Now().Add(time.Hour)}
 	f.sessions[s.PaymentSessionID] = s
+	return s, nil
+}
+func (f *fakeProvider) GetCardSession(_ context.Context, id, reference string) (*provider.XenditSessionResponse, error) {
+	s := f.sessions[id]
+	if s == nil || s.ReferenceID != reference {
+		return nil, fmt.Errorf("session not found")
+	}
 	return s, nil
 }
 func (f *fakeProvider) GetHostedSession(_ context.Context, id string) (*provider.XenditSessionResponse, error) {
@@ -94,8 +101,19 @@ INSERT INTO users(id,business_id,name,email,password,role) VALUES (1,'one','Owne
 	if err != nil {
 		t.Fatal(err)
 	}
-	if checkout.Amount != MonthlyPrice || checkout.CheckoutURL == "" {
+	if checkout.Amount != MonthlyPrice || checkout.Mode != "COMPONENTS" || checkout.ComponentsSDKKey == "" {
 		t.Fatalf("invalid checkout: %+v", checkout)
+	}
+	var link *string
+	if err := db.Get(&link, `SELECT payment_link_url FROM platform_checkout_sessions WHERE invoice_id=$1`, checkout.InvoiceID); err != nil || link != nil {
+		t.Fatalf("embedded checkout stored a redirect link: %v %v", link, err)
+	}
+	resumed, err := svc.Resume(ctx, "one")
+	if err != nil || resumed.PaymentSessionID != checkout.PaymentSessionID || resumed.ComponentsSDKKey == "" {
+		t.Fatalf("cannot resume checkout: %+v %v", resumed, err)
+	}
+	if _, err := svc.Resume(ctx, "two"); err == nil {
+		t.Fatal("cross tenant resume accepted")
 	}
 	if _, err := svc.Start(ctx, "two", 1, true); err == nil {
 		t.Fatal("cross tenant checkout accepted")

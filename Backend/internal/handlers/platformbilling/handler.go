@@ -49,6 +49,15 @@ func (h *Handler) Start(c echo.Context) error {
 	return utils.SuccessCreated(c, "Platform checkout created", item)
 }
 
+func (h *Handler) Resume(c echo.Context) error {
+	item, err := h.Service.Resume(c.Request().Context(), middlewares.GetBusinessID(c))
+	if err != nil {
+		return handleError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "no-store")
+	return utils.Success(c, "Platform checkout resumed", item)
+}
+
 func (h *Handler) Cancel(c echo.Context) error {
 	if err := h.Service.Cancel(c.Request().Context(), middlewares.GetBusinessID(c)); err != nil {
 		return handleError(c, err)

@@ -51,6 +51,7 @@ func RegisterRoutes(e *echo.Echo, h *AllHandlers, jwtSecret string) {
 	api.POST("/checkout/:token/session", h.Checkout.Start, h.Checkout.RateLimit(true))
 	api.POST("/integrations/orders", h.Merchant.CreateOrder)
 	api.GET("/integrations/orders/:reference", h.Merchant.GetOrder)
+	api.POST("/embed/sites/:site/orders", h.Merchant.CreateEmbedOrder)
 	api.POST("/webhooks/xendit/payment-sessions", func(c echo.Context) error {
 		c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 1<<20)
 		body, err := io.ReadAll(c.Request().Body)
@@ -93,11 +94,16 @@ func RegisterRoutes(e *echo.Echo, h *AllHandlers, jwtSecret string) {
 	merchantKeys.POST("", h.Merchant.CreateKey)
 	merchantKeys.GET("", h.Merchant.ListKeys)
 	merchantKeys.DELETE("/:id", h.Merchant.RevokeKey)
+	embedSites := protected.Group("/integrations/embed-sites", middlewares.RequireTenantUser, middlewares.RequireRoles(models.RoleAdmin))
+	embedSites.POST("", h.Merchant.CreateEmbedSite)
+	embedSites.GET("", h.Merchant.ListEmbedSites)
+	embedSites.DELETE("/:id", h.Merchant.RevokeEmbedSite)
 	platform := protected.Group("/platform", middlewares.RequireTenantUser, middlewares.RequireRoles(models.RoleAdmin))
 	platform.GET("/plan", h.PlatformBilling.Plan)
 	platform.GET("/subscription", h.PlatformBilling.Status)
 	platform.GET("/invoices", h.PlatformBilling.Invoices)
 	platform.POST("/subscription/checkout", h.PlatformBilling.Start)
+	platform.GET("/subscription/checkout", h.PlatformBilling.Resume)
 	platform.POST("/subscription/cancel", h.PlatformBilling.Cancel)
 	protected.GET("/dashboard/summary", h.Dashboard.Summary,
 		middlewares.RequireTenantUser,

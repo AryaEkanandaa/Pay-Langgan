@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -21,7 +22,8 @@ const MonthlyPrice int64 = 300000
 const PlanName = "PayLanggan Bulanan"
 
 type Provider interface {
-	CreateHostedSession(context.Context, provider.HostedSessionRequest) (*provider.XenditSessionResponse, error)
+	CreatePlatformComponentsSession(context.Context, provider.PlatformComponentsRequest) (*provider.XenditSessionResponse, error)
+	GetCardSession(context.Context, string, string) (*provider.XenditSessionResponse, error)
 	GetHostedSession(context.Context, string) (*provider.XenditSessionResponse, error)
 	CreateRecurringCharge(context.Context, provider.RecurringChargeRequest) (*provider.RecurringChargeResponse, error)
 	GetRecurringCharge(context.Context, string) (*provider.RecurringChargeResponse, error)
@@ -31,6 +33,7 @@ type Provider interface {
 type Service struct {
 	db        *database.DB
 	provider  Provider
+	publicURL string
 	returnURL string
 }
 
@@ -40,7 +43,7 @@ func NewService(db *database.DB, p Provider, publicURL, returnURL string) (*Serv
 	if db == nil || p == nil || !strings.HasPrefix(returnURL, "https://") {
 		return nil, fmt.Errorf("platform billing requires a database, provider, and HTTPS return URL")
 	}
-	return &Service{db: db, provider: p, returnURL: returnURL}, nil
+	return &Service{db: db, provider: p, publicURL: publicURL, returnURL: returnURL}, nil
 }
 
 type Plan struct {
@@ -66,14 +69,15 @@ type Invoice struct {
 }
 
 type Subscription struct {
-	BusinessID      string     `db:"business_id" json:"business_id"`
-	Status          string     `db:"status" json:"status"`
-	PaidThrough     *time.Time `db:"paid_through" json:"paid_through"`
-	NextBillingDate *time.Time `db:"next_billing_date" json:"next_billing_date"`
-	AutoRenew       bool       `json:"auto_renew"`
-	ConsentAt       *time.Time `db:"auto_renew_consent_at" json:"consent_at"`
-	PendingInvoice  *Invoice   `json:"pending_invoice,omitempty"`
-	CheckoutURL     string     `json:"checkout_url,omitempty"`
+	BusinessID           string     `db:"business_id" json:"business_id"`
+	Status               string     `db:"status" json:"status"`
+	PaidThrough          *time.Time `db:"paid_through" json:"paid_through"`
+	NextBillingDate      *time.Time `db:"next_billing_date" json:"next_billing_date"`
+	AutoRenew            bool       `json:"auto_renew"`
+	ConsentAt            *time.Time `db:"auto_renew_consent_at" json:"consent_at"`
+	PendingInvoice       *Invoice   `json:"pending_invoice,omitempty"`
+	CheckoutAvailable    bool       `json:"checkout_available"`
+	LegacyCheckoutActive bool       `json:"legacy_checkout_active"`
 }
 
 func (s *Service) Status(ctx context.Context, businessID string) (*Subscription, error) {
@@ -103,8 +107,14 @@ func (s *Service) Status(ctx context.Context, businessID string) (*Subscription,
 	}
 	if err == nil {
 		sub.PendingInvoice = &inv
-		_ = s.db.GetContext(ctx, &sub.CheckoutURL, `SELECT payment_link_url FROM platform_checkout_sessions
- WHERE invoice_id=$1 AND status='active' AND payment_link_url IS NOT NULL ORDER BY id DESC LIMIT 1`, inv.ID)
+		var link *string
+		if err := s.db.GetContext(ctx, &link, `SELECT payment_link_url FROM platform_checkout_sessions
+ WHERE invoice_id=$1 AND status='active' ORDER BY id DESC LIMIT 1`, inv.ID); err == nil {
+			sub.CheckoutAvailable = link == nil
+			sub.LegacyCheckoutActive = link != nil
+		} else if err != sql.ErrNoRows {
+			return nil, err
+		}
 	}
 	return &sub, nil
 }
@@ -117,15 +127,56 @@ func (s *Service) Invoices(ctx context.Context, businessID string) ([]Invoice, e
 }
 
 type Checkout struct {
-	InvoiceID   int64  `json:"invoice_id"`
-	Amount      int64  `json:"amount"`
-	CheckoutURL string `json:"checkout_url"`
-	Status      string `json:"status"`
+	InvoiceID        int64  `json:"invoice_id"`
+	Amount           int64  `json:"amount"`
+	PaymentSessionID string `json:"payment_session_id"`
+	Mode             string `json:"mode"`
+	ComponentsSDKKey string `json:"components_sdk_key"`
+	Status           string `json:"status"`
+}
+
+func (s *Service) Resume(ctx context.Context, businessID string) (*Checkout, error) {
+	var row struct {
+		InvoiceID   int64  `db:"invoice_id"`
+		Amount      int64  `db:"amount"`
+		SessionID   string `db:"provider_session_id"`
+		ReferenceID string `db:"reference_id"`
+	}
+	err := s.db.GetContext(ctx, &row, `SELECT cs.invoice_id,i.amount,cs.provider_session_id,cs.reference_id
+ FROM platform_checkout_sessions cs JOIN platform_invoices i ON i.id=cs.invoice_id
+ WHERE i.business_id=$1 AND i.status='pending' AND cs.status='active' AND cs.payment_link_url IS NULL
+ AND cs.provider_session_id IS NOT NULL ORDER BY cs.id DESC LIMIT 1`, businessID)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("%w: no active embedded checkout", utils.ErrNotFound)
+	}
+	if err != nil {
+		return nil, err
+	}
+	session, err := s.provider.GetCardSession(ctx, row.SessionID, row.ReferenceID)
+	if err != nil {
+		return nil, err
+	}
+	if session.Amount != row.Amount || session.Currency != "IDR" || !sessionReady(session) {
+		return nil, fmt.Errorf("%w: checkout is awaiting confirmation or has expired", utils.ErrConflict)
+	}
+	return &Checkout{InvoiceID: row.InvoiceID, Amount: row.Amount, PaymentSessionID: session.PaymentSessionID,
+		Mode: "COMPONENTS", ComponentsSDKKey: session.ComponentsSDKKey, Status: "active"}, nil
+}
+
+func sessionReady(session *provider.XenditSessionResponse) bool {
+	return session != nil && session.Mode == "COMPONENTS" && session.Status == "ACTIVE" &&
+		session.PaymentSessionID != "" && session.ComponentsSDKKey != "" && session.ExpiresAt.After(time.Now())
 }
 
 func (s *Service) Start(ctx context.Context, businessID string, userID int, consent bool) (*Checkout, error) {
 	if businessID == "" || userID < 1 || !consent {
 		return nil, fmt.Errorf("%w: explicit monthly auto-debit consent is required", utils.ErrBadRequest)
+	}
+	parsedPublicURL, err := url.Parse(s.publicURL)
+	parsedReturnURL, returnErr := url.Parse(s.returnURL)
+	if err != nil || parsedPublicURL.Scheme != "https" || parsedPublicURL.Host == "" || parsedPublicURL.Path != "" || parsedPublicURL.RawQuery != "" || parsedPublicURL.Fragment != "" ||
+		returnErr != nil || parsedReturnURL.Scheme != "https" || parsedReturnURL.Host != parsedPublicURL.Host || parsedReturnURL.Path != "" || parsedReturnURL.RawQuery != "" || parsedReturnURL.Fragment != "" {
+		return nil, fmt.Errorf("%w: APP_PUBLIC_URL and XENDIT_RETURN_BASE_URL must use the same HTTPS frontend origin", utils.ErrBadRequest)
 	}
 	var payer struct {
 		Name  string `db:"name"`
@@ -183,20 +234,14 @@ func (s *Service) Start(ctx context.Context, businessID string, userID int, cons
 	if err == nil && chargeStatus != "failed" {
 		return nil, fmt.Errorf("%w: automatic charge is in progress or requires review", utils.ErrConflict)
 	}
-	var existing struct {
-		Status string  `db:"status"`
-		URL    *string `db:"payment_link_url"`
-	}
-	err = tx.GetContext(ctx, &existing, `SELECT status,payment_link_url FROM platform_checkout_sessions
+	var existing string
+	err = tx.GetContext(ctx, &existing, `SELECT status FROM platform_checkout_sessions
  WHERE invoice_id=$1 AND status IN ('creating','active') ORDER BY id DESC LIMIT 1`, invoice.ID)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
 	if err == nil {
-		if existing.Status == "active" && existing.URL != nil && *existing.URL != "" {
-			return &Checkout{invoice.ID, invoice.Amount, *existing.URL, "active"}, nil
-		}
-		return nil, fmt.Errorf("%w: checkout creation is in progress; reconcile before retrying", utils.ErrConflict)
+		return nil, fmt.Errorf("%w: checkout is already active; resume it or wait for reconciliation", utils.ErrConflict)
 	}
 	now := time.Now().UTC()
 	if _, err = tx.ExecContext(ctx, `UPDATE platform_subscriptions SET auto_renew_consent_at=$2,
@@ -219,23 +264,27 @@ func (s *Service) Start(ctx context.Context, businessID string, userID int, cons
 		return nil, err
 	}
 	returnURL := s.returnURL + "/dashboard/tagihan-platform"
-	response, err := s.provider.CreateHostedSession(ctx, provider.HostedSessionRequest{
+	response, err := s.provider.CreatePlatformComponentsSession(ctx, provider.PlatformComponentsRequest{
 		ReferenceID: reference, Amount: invoice.Amount, BusinessID: businessID,
-		PayerName: payer.Name, PayerEmail: payer.Email, SuccessURL: returnURL, CancelURL: returnURL,
-		SavePaymentMethod: true,
+		PayerName: payer.Name, PayerEmail: payer.Email,
+		Origin: parsedPublicURL.Scheme + "://" + parsedPublicURL.Host, ReturnURL: returnURL,
 	})
 	if err != nil {
 		if provider.SessionCreationRejected(err) {
 			_, _ = s.db.ExecContext(context.WithoutCancel(ctx), `UPDATE platform_checkout_sessions SET status='failed',last_error='provider_rejected',updated_at=(NOW() AT TIME ZONE 'UTC') WHERE id=$1`, checkoutID)
 		}
-		return nil, fmt.Errorf("create platform Xendit checkout: %w", err)
+		return nil, fmt.Errorf("create platform Xendit components checkout: %w", err)
+	}
+	if response.Amount != invoice.Amount || response.Currency != "IDR" || response.ReferenceID != reference || !sessionReady(response) {
+		return nil, fmt.Errorf("Xendit returned an incomplete platform components checkout")
 	}
 	if _, err = s.db.ExecContext(context.WithoutCancel(ctx), `UPDATE platform_checkout_sessions
- SET provider_session_id=$2,payment_link_url=$3,status='active',updated_at=(NOW() AT TIME ZONE 'UTC')
- WHERE id=$1 AND status='creating'`, checkoutID, response.PaymentSessionID, response.PaymentLinkURL); err != nil {
+	 SET provider_session_id=$2,status='active',updated_at=(NOW() AT TIME ZONE 'UTC')
+	 WHERE id=$1 AND status='creating'`, checkoutID, response.PaymentSessionID); err != nil {
 		return nil, err
 	}
-	return &Checkout{invoice.ID, invoice.Amount, response.PaymentLinkURL, "active"}, nil
+	return &Checkout{InvoiceID: invoice.ID, Amount: invoice.Amount, PaymentSessionID: response.PaymentSessionID,
+		Mode: "COMPONENTS", ComponentsSDKKey: response.ComponentsSDKKey, Status: "active"}, nil
 }
 
 func (s *Service) Cancel(ctx context.Context, businessID string) error {

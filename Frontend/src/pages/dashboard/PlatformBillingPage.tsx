@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { XenditComponents, type XenditSubmissionEndEvent } from 'xendit-components-web'
 import DashboardPageHeader from '../../components/dashboard/DashboardPageHeader'
 import { useAuth } from '../../context/AuthContext'
 import {
   ApiError, cancelPlatformSubscription, getPlatformInvoices, getPlatformPlan,
-  getPlatformSubscription, startPlatformCheckout,
-  type PlatformInvoice, type PlatformPlan, type PlatformSubscription,
+  getPlatformSubscription, resumePlatformCheckout, startPlatformCheckout,
+  type PlatformCheckout, type PlatformInvoice, type PlatformPlan, type PlatformSubscription,
 } from '../../lib/api'
 import { formatCurrency } from '../../lib/format'
 
@@ -21,6 +23,8 @@ const subscriptionStatus: Record<PlatformSubscription['status'], string> = {
 }
 
 export default function PlatformBillingPage() {
+  const [searchParams] = useSearchParams()
+  const returningFromXendit = searchParams.has('token_request_id')
   const { auth } = useAuth()
   const token = auth?.token
   const [plan, setPlan] = useState<PlatformPlan | null>(null)
@@ -31,6 +35,13 @@ export default function PlatformBillingPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [session, setSession] = useState<PlatformCheckout | null>(null)
+  const [cardReady, setCardReady] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [verifying, setVerifying] = useState(returningFromXendit)
+  const cardContainer = useRef<HTMLDivElement>(null)
+  const componentsRef = useRef<XenditComponents | null>(null)
+  const resumed = useRef(false)
 
   const refresh = useCallback(async () => {
     if (!token) return
@@ -47,18 +58,117 @@ export default function PlatformBillingPage() {
 
   useEffect(() => { void refresh() }, [refresh])
 
+  useEffect(() => {
+    if (!token || !subscription?.checkout_available || resumed.current) return
+    resumed.current = true
+    void resumePlatformCheckout(token).then((value) => {
+      if (value.mode === 'COMPONENTS' && value.components_sdk_key) {
+        setSession(value)
+        setVerifying(false)
+      }
+    }).catch(() => { setVerifying(true) })
+  }, [token, subscription?.checkout_available])
+
+  useEffect(() => {
+    if (!token || (!session && !verifying)) return
+    const timer = window.setInterval(() => {
+      void Promise.all([getPlatformSubscription(token), getPlatformInvoices(token)]).then(([next, items]) => {
+        setSubscription(next)
+        setInvoices(items)
+        if (next.status === 'active' && !next.pending_invoice) {
+          setSession(null)
+          setVerifying(false)
+          setNotice('Pembayaran berhasil. Langganan PayLanggan aktif.')
+        } else if (verifying && !next.checkout_available) {
+          setVerifying(false)
+          setSession(null)
+        }
+      }).catch(() => undefined)
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [token, session, verifying])
+
+  useEffect(() => {
+    if (!session || verifying || !cardContainer.current) return
+    const target = cardContainer.current
+    const components = new XenditComponents({ componentsSdkKey: session.components_sdk_key, resume: returningFromXendit })
+    componentsRef.current = components
+    let cardElement: HTMLElement | null = null
+    const onInit = () => {
+      const card = components.getActiveChannels({ filter: 'CARDS' })[0]
+      if (!card) { setError('Pembayaran kartu sedang tidak tersedia.'); return }
+      cardElement = components.createChannelComponent(card)
+      target.replaceChildren(cardElement)
+    }
+    const onReady = () => setCardReady(true)
+    const onNotReady = () => setCardReady(false)
+    const onBegin = () => { setSubmitting(true); setError(null) }
+    const onEnd = (event: XenditSubmissionEndEvent) => {
+      setSubmitting(false)
+      if (event.developerErrorMessage?.type === 'NETWORK_ERROR') {
+        setError('Status pembayaran belum dapat dipastikan. Periksa kembali status tagihan sebelum mencoba lagi.')
+      } else if (event.developerErrorMessage || event.userErrorMessage?.length) {
+        setError('Pembayaran belum berhasil. Periksa data kartu dan coba lagi.')
+      }
+    }
+    const onComplete = () => { setSubmitting(false); setVerifying(true); void refresh() }
+    const onExpired = () => { setSubmitting(false); setSession(null); setVerifying(true); void refresh() }
+    const onFatal = () => { setSubmitting(false); setError('Formulir kartu belum dapat ditampilkan. Muat ulang halaman dan coba lagi.') }
+    components.addEventListener('init', onInit)
+    components.addEventListener('submission-ready', onReady)
+    components.addEventListener('submission-not-ready', onNotReady)
+    components.addEventListener('submission-begin', onBegin)
+    components.addEventListener('submission-end', onEnd)
+    components.addEventListener('session-complete', onComplete)
+    components.addEventListener('session-expired-or-canceled', onExpired)
+    components.addEventListener('fatal-error', onFatal)
+    return () => {
+      components.removeEventListener('init', onInit)
+      components.removeEventListener('submission-ready', onReady)
+      components.removeEventListener('submission-not-ready', onNotReady)
+      components.removeEventListener('submission-begin', onBegin)
+      components.removeEventListener('submission-end', onEnd)
+      components.removeEventListener('session-complete', onComplete)
+      components.removeEventListener('session-expired-or-canceled', onExpired)
+      components.removeEventListener('fatal-error', onFatal)
+      if (componentsRef.current === components) componentsRef.current = null
+      if (cardElement) components.destroyComponent(cardElement)
+      target.replaceChildren()
+    }
+  }, [session, returningFromXendit, verifying, refresh])
+
   async function checkout() {
     if (!token || !consent) return
     setBusy(true); setError(null)
     try {
       const result = await startPlatformCheckout(token)
-      const url = new URL(result.checkout_url)
-      if (url.protocol !== 'https:') throw new Error('Alamat checkout tidak valid.')
-      window.location.assign(url.toString())
+      if (result.mode !== 'COMPONENTS' || !result.components_sdk_key) throw new Error('Formulir pembayaran belum tersedia.')
+      resumed.current = true
+      setSession(result)
+      setVerifying(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal membuka checkout.')
-      setBusy(false)
-    }
+    } finally { setBusy(false) }
+  }
+
+  async function resumeCheckout() {
+    if (!token) return
+    setBusy(true); setError(null)
+    try {
+      const result = await resumePlatformCheckout(token)
+      resumed.current = true
+      setSession(result)
+      setVerifying(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sesi pembayaran belum dapat dilanjutkan.')
+      await refresh()
+    } finally { setBusy(false) }
+  }
+
+  function pay() {
+    if (!componentsRef.current || !cardReady || submitting) return
+    try { componentsRef.current.submit() }
+    catch { setError('Periksa kembali data kartu Anda.') }
   }
 
   async function cancel() {
@@ -84,8 +194,15 @@ export default function PlatformBillingPage() {
       {subscription?.paid_through && <p>Berlaku sampai: {date(subscription.paid_through)}</p>}
       {subscription?.next_billing_date && <p>Periode tagihan berikutnya: {date(subscription.next_billing_date)}</p>}
       <p>Pembayaran otomatis: {subscription?.auto_renew ? 'Aktif' : 'Belum aktif'}</p>
-      {subscription?.checkout_url && <a className="mt-4 inline-block text-blue-700 underline" href={subscription.checkout_url}>Lanjutkan pembayaran</a>}
-      {(subscription?.status === 'not_subscribed' || subscription?.status === 'pending' || subscription?.status === 'past_due') && !subscription.checkout_url && <div className="mt-5 space-y-3">
+      {subscription?.legacy_checkout_active && <p className="mt-4 text-sm text-amber-800">Sesi pembayaran lama masih aktif. Tunggu sesi berakhir sebelum membuat pembayaran baru di halaman ini.</p>}
+      {subscription?.checkout_available && !session && !verifying && <button type="button" disabled={busy} onClick={resumeCheckout} className="mt-4 rounded-lg bg-blue-700 px-5 py-2 text-white disabled:opacity-50">Lanjutkan pembayaran</button>}
+      {verifying && <p role="status" className="mt-4 text-sm text-blue-700">Kami sedang memastikan pembayaran Anda. Status tagihan akan diperbarui otomatis.</p>}
+      {session && !verifying && <div className="mt-5 max-w-xl space-y-4">
+        <p className="text-sm text-slate-600">Masukkan detail kartu pada formulir pembayaran aman berikut.</p>
+        <div ref={cardContainer} className="checkout-card-fields" aria-label="Formulir pembayaran kartu" />
+        <button type="button" disabled={!cardReady || submitting} onClick={pay} className="rounded-lg bg-blue-700 px-5 py-2 text-white disabled:opacity-50">{submitting ? 'Memproses pembayaran...' : `Bayar ${formatCurrency(session.amount)}`}</button>
+      </div>}
+      {(subscription?.status === 'not_subscribed' || subscription?.status === 'pending' || subscription?.status === 'past_due') && !subscription.checkout_available && !subscription.legacy_checkout_active && !session && !verifying && <div className="mt-5 space-y-3">
         <label className="flex items-start gap-3"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} className="mt-1" />
           <span>Saya menyetujui pembayaran {formatCurrency(plan?.amount ?? 300000)} sekarang dan pendebitan kartu otomatis sebesar {formatCurrency(plan?.amount ?? 300000)} setiap bulan selama langganan aktif. Saya dapat membatalkan perpanjangan otomatis melalui halaman ini.</span>
         </label>
