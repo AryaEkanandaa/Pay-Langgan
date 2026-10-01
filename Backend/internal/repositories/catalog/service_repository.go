@@ -34,7 +34,7 @@ func (r *ServiceRepository) FindAllByBusinessID(businessID string, page, limit i
 	}
 
 	offset := (page - 1) * limit
-	dataQuery := `SELECT id, business_id, name, description, meta, created_at
+	dataQuery := `SELECT id, business_id, name, COALESCE(description, '') AS description, meta, created_at
 		FROM services WHERE business_id = $1`
 	dataArgs := []interface{}{businessID}
 	dataIdx := 2
@@ -58,7 +58,7 @@ func (r *ServiceRepository) FindAllByBusinessID(businessID string, page, limit i
 }
 
 func (r *ServiceRepository) FindByIDAndBusinessID(id int, businessID string) (*models.Service, error) {
-	query := `SELECT id, business_id, name, description, meta, created_at
+	query := `SELECT id, business_id, name, COALESCE(description, '') AS description, meta, created_at
 		FROM services WHERE id = $1 AND business_id = $2`
 	var service models.Service
 	err := r.db.Get(&service, query, id, businessID)
@@ -72,7 +72,7 @@ func (r *ServiceRepository) FindByIDAndBusinessID(id int, businessID string) (*m
 }
 
 func (r *ServiceRepository) FindByID(id int) (*models.Service, error) {
-	query := `SELECT id, business_id, name, description, meta, created_at
+	query := `SELECT id, business_id, name, COALESCE(description, '') AS description, meta, created_at
 		FROM services WHERE id = $1`
 	var service models.Service
 	err := r.db.Get(&service, query, id)

@@ -36,7 +36,7 @@ func (r *ProductRepository) FindAllByBusinessID(businessID string, page, limit i
 	}
 
 	offset := (page - 1) * limit
-	dataQuery := `SELECT p.id, p.service_id, p.name, p.description, p.status, p.meta, p.created_at
+	dataQuery := `SELECT p.id, p.service_id, p.name, COALESCE(p.description, '') AS description, p.status, p.meta, p.created_at
 		FROM products p
 		JOIN services s ON s.id = p.service_id
 		WHERE s.business_id = $1`
@@ -62,7 +62,7 @@ func (r *ProductRepository) FindAllByBusinessID(businessID string, page, limit i
 }
 
 func (r *ProductRepository) FindByIDAndBusinessID(id int, businessID string) (*models.Product, error) {
-	query := `SELECT p.id, p.service_id, p.name, p.description, p.status, p.meta, p.created_at
+	query := `SELECT p.id, p.service_id, p.name, COALESCE(p.description, '') AS description, p.status, p.meta, p.created_at
 		FROM products p
 		JOIN services s ON s.id = p.service_id
 		WHERE p.id = $1 AND s.business_id = $2`
@@ -78,7 +78,7 @@ func (r *ProductRepository) FindByIDAndBusinessID(id int, businessID string) (*m
 }
 
 func (r *ProductRepository) FindByID(id int) (*models.Product, error) {
-	query := `SELECT id, service_id, name, description, status, meta, created_at
+	query := `SELECT id, service_id, name, COALESCE(description, '') AS description, status, meta, created_at
 		FROM products WHERE id = $1`
 	var product models.Product
 	err := r.db.Get(&product, query, id)

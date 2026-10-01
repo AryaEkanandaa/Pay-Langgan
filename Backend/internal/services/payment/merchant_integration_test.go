@@ -78,6 +78,15 @@ func TestMerchantOrderIsScopedAndIdempotent(t *testing.T) {
 	if err != nil || retryPaid.InvoiceID != first.InvoiceID || retryPaid.CheckoutURL != "" {
 		t.Fatalf("paid retry: %+v %v", retryPaid, err)
 	}
+	req.ExternalOrderID = "order-002"
+	req.Customer.Email = "BUYER@example.com"
+	anotherOrder, err := svc.CreateOrder(ctx, "test", req)
+	if err != nil || anotherOrder.InvoiceID == first.InvoiceID {
+		t.Fatalf("second purchase: %+v %v", anotherOrder, err)
+	}
+	if err := db.Get(&count, `SELECT count(*) FROM customers WHERE business_id='test' AND lower(email)='buyer@example.com'`); err != nil || count != 1 {
+		t.Fatalf("customer reuse count=%d err=%v", count, err)
+	}
 
 	req.PlanID = 9999
 	req.ExternalOrderID = "missing-plan"
@@ -98,5 +107,84 @@ func TestMerchantOrderIsScopedAndIdempotent(t *testing.T) {
 	}
 	if _, err := svc.Authenticate(ctx, key.SecretKey); !errors.Is(err, utils.ErrUnauthorized) {
 		t.Fatalf("revoked key: %v", err)
+	}
+}
+
+func TestMerchantEmbedSiteAcceptsNewPlansAndRestrictsOriginAndRevocation(t *testing.T) {
+	db := paymentTestDB(t)
+	if _, err := db.Exec(`SELECT setval(pg_get_serial_sequence('customers','id'),(SELECT max(id) FROM customers));
+ SELECT setval(pg_get_serial_sequence('subscriptions','id'),(SELECT max(id) FROM subscriptions));
+ SELECT setval(pg_get_serial_sequence('invoices','id'),(SELECT max(id) FROM invoices));
+ INSERT INTO platform_subscriptions (business_id,status,paid_through)
+ VALUES ('test','active',(NOW() AT TIME ZONE 'UTC') + INTERVAL '1 month')`); err != nil {
+		t.Fatal(err)
+	}
+	xendit, err := provider.NewXenditProvider("", "callback-secret", "https://api.xendit.co", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout, err := paymentservice.NewCheckoutService(db, paymentrepo.NewCheckoutRepository(db), xendit,
+		"http://localhost:5173", "https://paylanggan.example", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := paymentservice.NewMerchantIntegrationService(db, checkout, billingrepo.NewInvoiceRepository(db))
+	ctx := context.Background()
+	if _, err := svc.CreateEmbedSite(ctx, "test", paymentservice.CreateEmbedSiteRequest{
+		Name: "Wrong website", Origin: "https://merchant.example/path",
+	}); !errors.Is(err, utils.ErrBadRequest) {
+		t.Fatalf("path origin: %v", err)
+	}
+	site, err := svc.CreateEmbedSite(ctx, "test", paymentservice.CreateEmbedSiteRequest{})
+	if err != nil || !strings.HasPrefix(site.PublicID, "pl_site_") || site.Name != "Integrasi bisnis" || site.Origin != "" {
+		t.Fatalf("site: %+v %v", site, err)
+	}
+	sites, err := svc.ListEmbedSites(ctx, "test")
+	if err != nil || len(sites) != 1 || sites[0].PublicID != site.PublicID {
+		t.Fatalf("sites: %+v %v", sites, err)
+	}
+	var firstPublicID string
+	if err := db.Get(&firstPublicID, `SELECT public_id FROM plans WHERE id=1`); err != nil || !strings.HasPrefix(firstPublicID, "pl_plan_") {
+		t.Fatalf("first plan public ID: %q %v", firstPublicID, err)
+	}
+	request := paymentservice.EmbedOrderRequest{PlanPublicID: firstPublicID}
+	request.Customer.Name = "Dira Pratama"
+	request.Customer.Email = "dira@merchant.example"
+	request.Customer.Mobile = "+628123456789"
+	request.PlanPublicID = "pl_plan_ffffffffffffffffffffffff"
+	if _, err := svc.CreateEmbedOrder(ctx, site.PublicID, "https://any-origin.example", request); !errors.Is(err, utils.ErrNotFound) {
+		t.Fatalf("missing plan: %v", err)
+	}
+	request.PlanPublicID = firstPublicID
+	order, err := svc.CreateEmbedOrder(ctx, site.PublicID, "https://any-origin.example", request)
+	if err != nil || order.InvoiceID == 0 || order.CheckoutURL == "" {
+		t.Fatalf("order: %+v %v", order, err)
+	}
+	if _, err := db.Exec(`INSERT INTO plans(id,product_id,name,price,billing_cycle) VALUES (2,1,'Team',200000,'monthly')`); err != nil {
+		t.Fatal(err)
+	}
+	var newPublicID string
+	if err := db.Get(&newPublicID, `SELECT public_id FROM plans WHERE id=2`); err != nil || newPublicID == firstPublicID {
+		t.Fatalf("new plan public ID: %q %v", newPublicID, err)
+	}
+	if _, err := db.Exec(`UPDATE plans SET name='Team Plus' WHERE id=2`); err != nil {
+		t.Fatal(err)
+	}
+	request.PlanPublicID = newPublicID
+	order, err = svc.CreateEmbedOrder(ctx, site.PublicID, "https://any-origin.example", request)
+	if err != nil || order.InvoiceID == 0 {
+		t.Fatalf("new plan should work without updating website: %+v %v", order, err)
+	}
+	request.PlanPublicID = ""
+	request.PlanID = 1
+	legacyOrder, err := svc.CreateEmbedOrder(ctx, site.PublicID, "https://any-origin.example", request)
+	if err != nil || legacyOrder.InvoiceID == 0 {
+		t.Fatalf("old numeric plan button should still work: %+v %v", legacyOrder, err)
+	}
+	if revoked, err := svc.RevokeEmbedSite(ctx, "test", site.ID); err != nil || !revoked {
+		t.Fatalf("revoke: %v %v", revoked, err)
+	}
+	if _, err := svc.CreateEmbedOrder(ctx, site.PublicID, "https://any-origin.example", request); !errors.Is(err, utils.ErrNotFound) {
+		t.Fatalf("revoked website: %v", err)
 	}
 }

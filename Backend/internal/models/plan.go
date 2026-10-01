@@ -6,6 +6,7 @@ import (
 
 type Plan struct {
 	ID           int       `db:"id" json:"id"`
+	PublicID     string    `db:"public_id" json:"public_id"`
 	ProductID    int       `db:"product_id" json:"product_id"`
 	Name         string    `db:"name" json:"name"`
 	Price        float64   `db:"price" json:"price"`

@@ -37,7 +37,7 @@ func (r *PlanRepository) FindAllByBusinessID(businessID string, page, limit int,
 	}
 
 	offset := (page - 1) * limit
-	dataQuery := `SELECT pl.id, pl.product_id, pl.name, pl.price, pl.billing_cycle, pl.trial_days, pl.meta, pl.created_at
+	dataQuery := `SELECT pl.id, pl.public_id, pl.product_id, pl.name, pl.price, pl.billing_cycle, pl.trial_days, pl.meta, pl.created_at
 		FROM plans pl
 		JOIN products p ON p.id = pl.product_id
 		JOIN services s ON s.id = p.service_id
@@ -64,7 +64,7 @@ func (r *PlanRepository) FindAllByBusinessID(businessID string, page, limit int,
 }
 
 func (r *PlanRepository) FindByIDAndBusinessID(id int, businessID string) (*models.Plan, error) {
-	query := `SELECT pl.id, pl.product_id, pl.name, pl.price, pl.billing_cycle, pl.trial_days, pl.meta, pl.created_at
+	query := `SELECT pl.id, pl.public_id, pl.product_id, pl.name, pl.price, pl.billing_cycle, pl.trial_days, pl.meta, pl.created_at
 		FROM plans pl
 		JOIN products p ON p.id = pl.product_id
 		JOIN services s ON s.id = p.service_id
@@ -81,7 +81,7 @@ func (r *PlanRepository) FindByIDAndBusinessID(id int, businessID string) (*mode
 }
 
 func (r *PlanRepository) FindByID(id int) (*models.Plan, error) {
-	query := `SELECT id, product_id, name, price, billing_cycle, trial_days, meta, created_at
+	query := `SELECT id, public_id, product_id, name, price, billing_cycle, trial_days, meta, created_at
 		FROM plans WHERE id = $1`
 	var plan models.Plan
 	err := r.db.Get(&plan, query, id)
@@ -100,9 +100,9 @@ func (r *PlanRepository) Create(plan *models.Plan) error {
 	}
 	query := `INSERT INTO plans (product_id, name, price, billing_cycle, trial_days, meta, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW())
-		RETURNING id, created_at`
+		RETURNING id, public_id, created_at`
 	err := r.db.QueryRow(query, plan.ProductID, plan.Name, plan.Price, plan.BillingCycle, plan.TrialDays, plan.Meta).
-		Scan(&plan.ID, &plan.CreatedAt)
+		Scan(&plan.ID, &plan.PublicID, &plan.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create plan: %w", err)
 	}

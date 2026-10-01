@@ -186,8 +186,19 @@ func (s *MerchantIntegrationService) CreateOrder(ctx context.Context, businessID
 	}
 
 	var customerID int
-	err = tx.QueryRowContext(ctx, `INSERT INTO customers (business_id,name,email,contact,meta)
+	// Serialize purchases for the same business and email so concurrent orders
+	// reuse one customer record instead of creating more duplicates.
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1), hashtext(lower($2)))`, businessID, req.Customer.Email); err != nil {
+		return nil, err
+	}
+	err = tx.QueryRowContext(ctx, `SELECT c.id FROM customers c
+ WHERE c.business_id=$1 AND lower(c.email)=lower($2)
+ ORDER BY EXISTS (SELECT 1 FROM payment_methods pm WHERE pm.customer_id=c.id AND pm.is_default=true) DESC, c.id
+ LIMIT 1`, businessID, req.Customer.Email).Scan(&customerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = tx.QueryRowContext(ctx, `INSERT INTO customers (business_id,name,email,contact,meta)
  VALUES ($1,$2,$3,$4,'{}'::jsonb) RETURNING id`, businessID, req.Customer.Name, req.Customer.Email, req.Customer.Mobile).Scan(&customerID)
+	}
 	if err != nil {
 		return nil, err
 	}
