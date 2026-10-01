@@ -27,6 +27,15 @@ export const dashboardNavItems: DashboardNavItem[] = [
     ],
   },
   { label: 'Kupon', to: '/dashboard/kupon', icon: Ticket, allowedRoles: ['admin', 'sales'] },
-  { label: 'Pengaturan Bisnis', to: '/dashboard/pengaturan', icon: Settings, allowedRoles: ['admin'] },
-  { label: 'Tagihan PayLanggan', to: '/dashboard/tagihan-platform', icon: FileText, allowedRoles: ['admin'] },
+  {
+    label: 'Pengaturan',
+    to: '/dashboard/pengaturan',
+    icon: Settings,
+    allowedRoles: ['admin'],
+    children: [
+      { label: 'Bisnis', to: '/dashboard/pengaturan' },
+      { label: 'Integrasi Website', to: '/dashboard/integrasi' },
+      { label: 'Tagihan PayLanggan', to: '/dashboard/tagihan-platform' },
+    ],
+  },
 ]

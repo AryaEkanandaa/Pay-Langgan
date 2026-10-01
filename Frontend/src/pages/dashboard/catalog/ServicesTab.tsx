@@ -108,6 +108,13 @@ export default function ServicesTab() {
 
       {isLoading ? (
         <TableSkeleton columns={['Nama', 'Deskripsi', 'Dibuat', '']} />
+      ) : error && services.length === 0 ? (
+        <div className="glass flex min-h-[200px] flex-col items-center justify-center rounded-2xl text-center">
+          <p className="text-[14px] font-medium text-body">Daftar layanan belum bisa ditampilkan.</p>
+          <button type="button" onClick={loadServices} className="mt-2 text-[13px] font-semibold text-brand hover:underline">
+            Coba lagi
+          </button>
+        </div>
       ) : services.length === 0 ? (
         <div className="glass flex min-h-[200px] flex-col items-center justify-center rounded-2xl text-center">
           <p className="text-[14px] font-medium text-body">

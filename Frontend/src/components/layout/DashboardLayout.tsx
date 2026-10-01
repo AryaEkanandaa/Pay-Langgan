@@ -13,11 +13,13 @@ export default function DashboardLayout() {
   const visibleNavItems = dashboardNavItems.filter(
     (item) => !item.allowedRoles || item.allowedRoles.includes(auth?.user.role ?? 'admin'),
   )
-  const isNavItemActive = (to: string) =>
+  const isPathActive = (to: string) =>
     location.pathname === to || (to !== '/dashboard' && location.pathname.startsWith(`${to}/`))
+  const isNavItemActive = (item: (typeof dashboardNavItems)[number]) =>
+    isPathActive(item.to) || Boolean(item.children?.some((child) => isPathActive(child.to.split('#')[0])))
 
   useEffect(() => {
-    const activeItem = visibleNavItems.find((item) => location.pathname === item.to && item.children)
+    const activeItem = visibleNavItems.find((item) => isNavItemActive(item) && item.children)
     if (activeItem) setOpenMenu(activeItem.to)
   }, [location.pathname, auth?.user.role])
 
@@ -31,7 +33,7 @@ export default function DashboardLayout() {
 
         <nav className="flex flex-1 flex-col gap-1">
           {visibleNavItems.map((item) => {
-            const isActive = isNavItemActive(item.to)
+            const isActive = isNavItemActive(item)
             const Icon = item.icon
             return (
               <div key={item.to}>
@@ -62,8 +64,8 @@ export default function DashboardLayout() {
                 {item.children && openMenu === item.to && (
                   <div className="ml-9 mt-1 space-y-0.5 border-l border-white/10 pl-3">
                     {item.children.map((child) => {
-                      const childHash = child.to.split('#')[1]
-                      const childActive = isActive && location.hash === `#${childHash}`
+                      const [childPath, childHash] = child.to.split('#')
+                      const childActive = isPathActive(childPath) && (!childHash || location.hash === `#${childHash}`)
                       return (
                         <Link
                           key={child.to}
@@ -109,7 +111,7 @@ export default function DashboardLayout() {
 
         <nav className="flex gap-1 overflow-x-auto bg-gradient-to-b from-ink to-deep px-4 py-2 md:hidden">
           {visibleNavItems.map((item) => {
-            const isActive = isNavItemActive(item.to)
+            const isActive = isNavItemActive(item)
             return (
               <Fragment key={item.to}>
                 <Link
@@ -120,15 +122,21 @@ export default function DashboardLayout() {
                 >
                   {item.label}
                 </Link>
-                {isActive && item.children?.map((child) => (
-                  <Link
-                    key={child.to}
-                    to={child.to}
-                    className="whitespace-nowrap rounded-full bg-white/10 px-3 py-1.5 text-[13px] font-medium text-white/70"
-                  >
-                    {child.label}
-                  </Link>
-                ))}
+                {isActive && item.children?.map((child) => {
+                  const [childPath, childHash] = child.to.split('#')
+                  const childActive = isPathActive(childPath) && (!childHash || location.hash === `#${childHash}`)
+                  return (
+                    <Link
+                      key={child.to}
+                      to={child.to}
+                      className={`whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] font-medium ${
+                        childActive ? 'bg-white/20 text-white' : 'bg-white/10 text-white/70'
+                      }`}
+                    >
+                      {child.label}
+                    </Link>
+                  )
+                })}
               </Fragment>
             )
           })}

@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
+export const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 
 export class ApiError extends Error {}
 
@@ -115,6 +115,52 @@ export async function getMyBusiness(token: string) {
 export async function updateMyBusiness(token: string, payload: BusinessUpdatePayload) {
   await request<null>('/api/v1/businesses/me', { method: 'PUT', token, body: payload })
   return getMyBusiness(token)
+}
+
+export interface IntegrationKey {
+  id: number
+  name: string
+  created_at: string
+  revoked_at?: string | null
+}
+
+export interface CreatedIntegrationKey extends IntegrationKey {
+  secret_key: string
+}
+
+export async function listIntegrationKeys(token: string) {
+  const { data } = await request<IntegrationKey[]>('/api/v1/integrations/keys', { token })
+  return data ?? []
+}
+
+export async function createIntegrationKey(token: string, name: string) {
+  const { data } = await request<CreatedIntegrationKey>('/api/v1/integrations/keys', {
+    method: 'POST', token, body: { name },
+  })
+  return data
+}
+
+export async function revokeIntegrationKey(token: string, id: number) {
+  await request<{ revoked: boolean }>(`/api/v1/integrations/keys/${id}`, { method: 'DELETE', token })
+}
+
+export interface EmbedSite {
+  id: number
+  public_id: string
+  created_at: string
+  revoked_at?: string | null
+}
+
+export async function listEmbedSites(token: string) {
+  return (await request<EmbedSite[]>('/api/v1/integrations/embed-sites', { token })).data ?? []
+}
+
+export async function createEmbedSite(token: string, payload: { name?: string; origin?: string } = {}) {
+  return (await request<EmbedSite>('/api/v1/integrations/embed-sites', { method: 'POST', token, body: payload })).data
+}
+
+export async function revokeEmbedSite(token: string, id: number) {
+  await request<{ revoked: boolean }>(`/api/v1/integrations/embed-sites/${id}`, { method: 'DELETE', token })
 }
 
 export interface CreateStaffPayload {
@@ -308,6 +354,7 @@ export async function deleteProduct(token: string, id: number) {
 
 export interface Plan {
   id: number
+  public_id: string
   product_id: number
   name: string
   price: number
@@ -743,7 +790,17 @@ export interface PlatformSubscription {
   auto_renew: boolean
   consent_at: string | null
   pending_invoice?: PlatformInvoice
-  checkout_url?: string
+  checkout_available: boolean
+  legacy_checkout_active: boolean
+}
+
+export interface PlatformCheckout {
+  invoice_id: number
+  amount: number
+  payment_session_id: string
+  mode: 'COMPONENTS'
+  components_sdk_key: string
+  status: string
 }
 
 export async function getPlatformPlan(token: string) {
@@ -759,10 +816,14 @@ export async function getPlatformInvoices(token: string) {
 }
 
 export async function startPlatformCheckout(token: string) {
-  return (await request<{ invoice_id: number; amount: number; checkout_url: string; status: string }>(
+  return (await request<PlatformCheckout>(
     '/api/v1/platform/subscription/checkout',
     { method: 'POST', token, body: { auto_renew_consent: true } },
   )).data
+}
+
+export async function resumePlatformCheckout(token: string) {
+  return (await request<PlatformCheckout>('/api/v1/platform/subscription/checkout', { token })).data
 }
 
 export async function cancelPlatformSubscription(token: string) {

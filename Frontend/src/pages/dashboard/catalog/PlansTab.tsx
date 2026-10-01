@@ -28,6 +28,7 @@ export default function PlansTab() {
   const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [copiedPlanId, setCopiedPlanId] = useState<number | null>(null)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null)
@@ -109,6 +110,16 @@ export default function PlansTab() {
     }
   }
 
+  async function copyPlanId(plan: Plan) {
+    try {
+      await navigator.clipboard.writeText(String(plan.id))
+      setCopiedPlanId(plan.id)
+      setError(null)
+    } catch {
+      setError(`Tidak dapat menyalin otomatis. ID plan "${plan.name}" adalah ${plan.id}.`)
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   if (!auth) return null
@@ -164,7 +175,7 @@ export default function PlansTab() {
       ) : (
         <div className="glass overflow-hidden rounded-2xl">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-left text-[13px]">
+            <table className="w-full min-w-[760px] text-left text-[13px]">
               <thead>
                 <tr className="border-b border-white/50">
                   <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted">Nama</th>
@@ -178,7 +189,10 @@ export default function PlansTab() {
               <tbody>
                 {plans.map((plan) => (
                   <tr key={plan.id} className="border-b border-white/30 last:border-0">
-                    <td className="px-5 py-4 font-medium text-ink">{plan.name}</td>
+                    <td className="px-5 py-4 font-medium text-ink">
+                      {plan.name}
+                      <span className="mt-0.5 block select-all font-mono text-[11px] font-normal text-muted">ID {plan.id}</span>
+                    </td>
                     <td className="px-5 py-4 text-body">{productName(plan.product_id)}</td>
                     <td className="px-5 py-4 text-body">{formatCurrency(plan.price)}</td>
                     <td className="px-5 py-4 text-body">
@@ -188,6 +202,14 @@ export default function PlansTab() {
                       {plan.trial_days > 0 ? `${plan.trial_days} hari` : '—'}
                     </td>
                     <td className="px-5 py-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => copyPlanId(plan)}
+                        aria-label={`Salin ID plan ${plan.name}`}
+                        className="mr-3 whitespace-nowrap text-[13px] font-semibold text-brand hover:underline"
+                      >
+                        {copiedPlanId === plan.id ? 'ID tersalin' : 'Salin ID'}
+                      </button>
                       <button
                         type="button"
                         onClick={() => openEditModal(plan)}

@@ -144,6 +144,13 @@ export default function ProductsTab() {
 
       {isLoading ? (
         <TableSkeleton columns={['Nama', 'Layanan', 'Status', 'Dibuat', '']} />
+      ) : error && products.length === 0 ? (
+        <div className="glass flex min-h-[200px] flex-col items-center justify-center rounded-2xl text-center">
+          <p className="text-[14px] font-medium text-body">Daftar produk belum bisa ditampilkan.</p>
+          <button type="button" onClick={loadProducts} className="mt-2 text-[13px] font-semibold text-brand hover:underline">
+            Coba lagi
+          </button>
+        </div>
       ) : products.length === 0 ? (
         <div className="glass flex min-h-[200px] flex-col items-center justify-center rounded-2xl text-center">
           <p className="text-[14px] font-medium text-body">
