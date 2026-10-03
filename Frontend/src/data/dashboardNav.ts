@@ -34,6 +34,7 @@ export const dashboardNavItems: DashboardNavItem[] = [
     allowedRoles: ['admin'],
     children: [
       { label: 'Bisnis', to: '/dashboard/pengaturan' },
+      { label: 'Payment Gateway', to: '/dashboard/pengaturan/payment-gateway' },
       { label: 'Integrasi Website', to: '/dashboard/integrasi' },
       { label: 'Tagihan PayLanggan', to: '/dashboard/tagihan-platform' },
     ],

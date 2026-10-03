@@ -117,6 +117,27 @@ export async function updateMyBusiness(token: string, payload: BusinessUpdatePay
   return getMyBusiness(token)
 }
 
+export interface BusinessPaymentGatewayDTO {
+  provider: 'xendit' | 'midtrans'
+  environment: 'sandbox' | 'production'
+  configured_at: string
+  updated_at: string
+  verified_at: string | null
+  account_label?: string
+  webhook_url: string
+  status: 'configured' | 'verified'
+}
+
+export interface BusinessPaymentGatewayInput {
+  provider: 'xendit' | 'midtrans'
+  environment: 'sandbox' | 'production'
+  xendit_secret_key?: string
+  xendit_callback_token?: string
+  midtrans_merchant_id?: string
+  midtrans_client_key?: string
+  midtrans_server_key?: string
+}
+
 export interface IntegrationKey {
   id: number
   name: string
@@ -828,4 +849,18 @@ export async function resumePlatformCheckout(token: string) {
 
 export async function cancelPlatformSubscription(token: string) {
   return request<null>('/api/v1/platform/subscription/cancel', { method: 'POST', token })
+}
+
+export async function getBusinessPaymentGateway(token: string) {
+  return (await request<BusinessPaymentGatewayDTO | null>('/api/v1/settings/payment-gateway', { token })).data
+}
+
+export async function saveBusinessPaymentGateway(token: string, payload: BusinessPaymentGatewayInput) {
+  return (await request<BusinessPaymentGatewayDTO>('/api/v1/settings/payment-gateway', {
+    method: 'PUT', token, body: payload,
+  })).data
+}
+
+export async function deleteBusinessPaymentGateway(token: string) {
+  await request<{ removed: boolean }>('/api/v1/settings/payment-gateway', { method: 'DELETE', token })
 }

@@ -18,6 +18,7 @@ import InvoicePage from './pages/dashboard/InvoicePage'
 import InvoiceCustomizationPage from './pages/dashboard/InvoiceCustomizationPage'
 import PlatformBillingPage from './pages/dashboard/PlatformBillingPage'
 import IntegrationKeysPage from './pages/dashboard/IntegrationKeysPage'
+import PaymentGatewayPage from './pages/dashboard/PaymentGatewayPage'
 
 const CheckoutPage = lazy(() => import('./pages/CheckoutPage'))
 
@@ -50,6 +51,7 @@ function App() {
           <Route element={<RequireRole roles={['admin']} fallback="/dashboard" />}>
 			<Route path="tagihan-platform" element={<PlatformBillingPage />} />
             <Route path="pengaturan" element={<PengaturanPage />} />
+            <Route path="pengaturan/payment-gateway" element={<PaymentGatewayPage />} />
             <Route path="integrasi" element={<IntegrationKeysPage />} />
             <Route path="pengaturan/invoice" element={<InvoiceCustomizationPage />} />
           </Route>
