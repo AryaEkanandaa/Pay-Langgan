@@ -127,6 +127,7 @@ export default function PaymentGatewayPage() {
               <code className="max-w-full break-all rounded bg-white px-2 py-1 text-xs">{saved.webhook_url}</code>
               <button type="button" onClick={copyWebhook} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 px-2 py-1 text-xs"><Copy size={13} /> Salin URL webhook</button>
             </div>
+            <p className="mt-2 text-xs">{saved.provider === 'midtrans' ? 'Atur URL ini sebagai Payment Notification URL di akun Midtrans Anda.' : 'Daftarkan URL ini sebagai webhook pembayaran di akun Xendit Anda.'}</p>
           </div>}
 
           <div className="flex gap-2 rounded-xl bg-slate-50 p-4 text-xs text-muted">

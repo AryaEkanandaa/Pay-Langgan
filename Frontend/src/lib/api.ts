@@ -601,9 +601,13 @@ export interface StartCheckoutPayload {
 }
 
 export interface StartedCheckout {
+  provider: 'xendit' | 'midtrans'
   payment_session_id: string
-  mode: 'COMPONENTS'
-  components_sdk_key: string
+  mode: 'COMPONENTS' | 'SNAP'
+  components_sdk_key?: string
+  snap_token?: string
+  snap_client_key?: string
+  snap_script_url?: string
   status: 'active'
   expires_at: string
 }

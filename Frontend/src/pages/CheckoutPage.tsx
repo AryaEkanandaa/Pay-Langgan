@@ -8,6 +8,19 @@ import SubmitButton from '../components/ui/SubmitButton'
 import { ApiError, getPublicCheckout, startPublicCheckout, type PublicCheckout, type StartedCheckout } from '../lib/api'
 import { formatCurrency } from '../lib/format'
 
+declare global {
+  interface Window {
+    snap?: {
+      pay: (token: string, callbacks: {
+        onSuccess?: (result: unknown) => void
+        onPending?: (result: unknown) => void
+        onError?: (result: unknown) => void
+        onClose?: () => void
+      }) => void
+    }
+  }
+}
+
 function isAllowedParentOrigin(value: string): boolean {
   try {
     const origin = new URL(value)
@@ -37,6 +50,7 @@ export default function CheckoutPage() {
   const [isStarting, setIsStarting] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isCardReady, setIsCardReady] = useState(false)
+  const [isSnapReady, setIsSnapReady] = useState(false)
   const [isVerifying, setIsVerifying] = useState(returningFromXendit)
   const [error, setError] = useState<string | null>(null)
   const cardContainer = useRef<HTMLDivElement>(null)
@@ -95,7 +109,7 @@ export default function CheckoutPage() {
   }, [token, returningFromXendit, parentOrigin])
 
   useEffect(() => {
-    if (!session || isVerifying || !cardContainer.current || checkout?.invoice_status === 'paid') return
+    if (!session || session.provider !== 'xendit' || !session.components_sdk_key || isVerifying || !cardContainer.current || checkout?.invoice_status === 'paid') return
     const target = cardContainer.current
     const components = new XenditComponents({
       componentsSdkKey: session.components_sdk_key,
@@ -170,6 +184,34 @@ export default function CheckoutPage() {
   }, [session, token, returningFromXendit, isVerifying, checkout?.invoice_status])
 
   useEffect(() => {
+    if (session?.provider !== 'midtrans' || !session.snap_script_url || !session.snap_client_key) {
+      setIsSnapReady(false)
+      return
+    }
+    const scriptId = 'paylanggan-midtrans-snap'
+    const existing = document.getElementById(scriptId) as HTMLScriptElement | null
+    if (existing && existing.src === session.snap_script_url && window.snap) {
+      setIsSnapReady(true)
+      return
+    }
+    existing?.remove()
+    window.snap = undefined
+    setIsSnapReady(false)
+    const script = document.createElement('script')
+    script.id = scriptId
+    script.src = session.snap_script_url
+    script.async = true
+    script.setAttribute('data-client-key', session.snap_client_key)
+    script.onload = () => setIsSnapReady(true)
+    script.onerror = () => setError('Formulir pembayaran belum dapat dimuat. Periksa koneksi lalu coba lagi.')
+    document.head.appendChild(script)
+    return () => {
+      script.onload = null
+      script.onerror = null
+    }
+  }, [session?.provider, session?.snap_script_url, session?.snap_client_key])
+
+  useEffect(() => {
     if ((!session && !isVerifying) || checkout?.invoice_status === 'paid' || checkout?.checkout_status === 'expired') return
     const timer = window.setInterval(() => {
       void getPublicCheckout(token).then(setCheckout).catch(() => undefined)
@@ -184,7 +226,7 @@ export default function CheckoutPage() {
     setError(null)
     try {
       const started = await startPublicCheckout(token, { name, email, mobile, parent_origin: parentOrigin ?? undefined })
-      if (started.mode !== 'COMPONENTS' || !started.components_sdk_key) {
+      if (started.provider === 'midtrans' ? started.mode !== 'SNAP' || !started.snap_token || !started.snap_client_key || !started.snap_script_url : started.mode !== 'COMPONENTS' || !started.components_sdk_key) {
         throw new Error('Pembayaran belum dapat disiapkan. Silakan coba lagi.')
       }
       setSession(started)
@@ -197,6 +239,33 @@ export default function CheckoutPage() {
   }
 
   function handlePay() {
+    if (session?.provider === 'midtrans') {
+      if (!window.snap || !isSnapReady || !session.snap_token || isSubmitting) return
+      setError(null)
+      setIsSubmitting(true)
+      try {
+        window.snap.pay(session.snap_token, {
+          onSuccess: () => {
+            setIsSubmitting(false)
+            setIsVerifying(true)
+            void getPublicCheckout(token).then(setCheckout).catch(() => undefined)
+          },
+          onPending: () => {
+            setIsSubmitting(false)
+            setError('Pembayaran sedang diproses. Status tagihan akan diperbarui setelah konfirmasi diterima.')
+          },
+          onError: () => {
+            setIsSubmitting(false)
+            setError('Pembayaran belum berhasil. Periksa metode pembayaran dan coba lagi.')
+          },
+          onClose: () => setIsSubmitting(false),
+        })
+      } catch {
+        setIsSubmitting(false)
+        setError('Jendela pembayaran belum dapat dibuka. Coba lagi.')
+      }
+      return
+    }
     if (!componentsRef.current || !isCardReady || isSubmitting) return
     setError(null)
     try {
@@ -238,9 +307,9 @@ export default function CheckoutPage() {
                 <div className="mt-6 flex items-start gap-3 text-brand"><Clock3 size={22} /><p>Kami sedang memastikan pembayaran Anda. Status tagihan akan diperbarui secara otomatis.</p></div>
               ) : session ? (
                 <div className="mt-8 max-w-xl space-y-5">
-                  <div ref={cardContainer} className="checkout-card-fields" aria-label="Formulir pembayaran kartu" />
+                  {session.provider === 'xendit' ? <div ref={cardContainer} className="checkout-card-fields" aria-label="Formulir pembayaran kartu" /> : <p className="text-[15px] text-body">Pilih metode pembayaran yang tersedia pada jendela pembayaran aman.</p>}
                   {error && <p role="alert" className="text-[13px] text-red-600">{error}</p>}
-                  <SubmitButton type="button" onClick={handlePay} disabled={!isCardReady || isSubmitting} className="gap-2">
+                  <SubmitButton type="button" onClick={handlePay} disabled={(session.provider === 'xendit' ? !isCardReady : !isSnapReady) || isSubmitting} className="gap-2">
                     <CreditCard size={17} aria-hidden="true" />
                     {isSubmitting ? 'Memproses pembayaran...' : `Bayar ${formatCurrency(checkout.amount)}`}
                   </SubmitButton>
