@@ -19,7 +19,7 @@ func NewCheckoutRepository(db *database.DB) *CheckoutRepository {
 	return &CheckoutRepository{db: db}
 }
 
-const checkoutRecordColumns = `SELECT cs.id AS checkout_id, cs.invoice_id, cs.payment_id,
+const checkoutRecordColumns = `SELECT cs.id AS checkout_id, cs.invoice_id, cs.payment_id, cs.provider,
  cs.reference_id, cs.provider_session_id, cs.payment_link_url, cs.status AS checkout_status,
  cs.expires_at,
  i.invoice_number, i.amount AS invoice_amount, i.status AS invoice_status,
@@ -54,11 +54,14 @@ func (r *CheckoutRepository) FindInvoiceForCheckout(tx *sqlx.Tx, invoiceID int, 
 }
 
 func (r *CheckoutRepository) Create(tx *sqlx.Tx, checkout *models.CheckoutSession) error {
+	if checkout.Provider != "xendit" && checkout.Provider != "midtrans" {
+		return fmt.Errorf("unsupported checkout provider")
+	}
 	return tx.QueryRow(`INSERT INTO checkout_sessions
  (invoice_id, public_token_hash, reference_id, provider, status, expires_at)
- VALUES ($1, $2, $3, 'xendit', 'created', $4)
- RETURNING id, created_at, updated_at`, checkout.InvoiceID, checkout.PublicTokenHash,
-		checkout.ReferenceID, checkout.ExpiresAt).
+	 VALUES ($1, $2, $3, $4, 'created', $5)
+	 RETURNING id, created_at, updated_at`, checkout.InvoiceID, checkout.PublicTokenHash,
+		checkout.ReferenceID, checkout.Provider, checkout.ExpiresAt).
 		Scan(&checkout.ID, &checkout.CreatedAt, &checkout.UpdatedAt)
 }
 
@@ -164,13 +167,14 @@ func (r *CheckoutRepository) RememberSession(ctx context.Context, checkoutID int
 	return nil
 }
 
-func (r *CheckoutRepository) Activate(ctx context.Context, checkoutID int64, invoiceID int, amount float64, providerSessionID string, expiresAt time.Time) error {
+func (r *CheckoutRepository) Activate(ctx context.Context, checkoutID int64, invoiceID int, providerName string, amount float64, providerSessionID string, expiresAt time.Time) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin activate checkout: %w", err)
 	}
 	defer tx.Rollback()
 	var current struct {
+		Provider  string  `db:"provider"`
 		Status    string  `db:"status"`
 		SessionID *string `db:"provider_session_id"`
 	}
@@ -178,8 +182,11 @@ func (r *CheckoutRepository) Activate(ctx context.Context, checkoutID int64, inv
 	if _, err := tx.ExecContext(ctx, `SELECT id FROM invoices WHERE id=$1 FOR UPDATE`, invoiceID); err != nil {
 		return err
 	}
-	if err := tx.GetContext(ctx, &current, `SELECT status, provider_session_id FROM checkout_sessions WHERE id=$1 FOR UPDATE`, checkoutID); err != nil {
+	if err := tx.GetContext(ctx, &current, `SELECT provider, status, provider_session_id FROM checkout_sessions WHERE id=$1 FOR UPDATE`, checkoutID); err != nil {
 		return err
+	}
+	if current.Provider != providerName {
+		return fmt.Errorf("checkout provider identity conflict")
 	}
 	if current.SessionID != nil && *current.SessionID != providerSessionID {
 		return fmt.Errorf("checkout session identity conflict")
@@ -192,7 +199,7 @@ func (r *CheckoutRepository) Activate(ctx context.Context, checkoutID int64, inv
 	}
 	var paymentID int
 	err = tx.QueryRowContext(ctx, `INSERT INTO payments (invoice_id, provider, provider_transaction_id, amount, status, created_at)
- VALUES ($1, 'xendit', $2, $3, 'pending', (NOW() AT TIME ZONE 'UTC')) RETURNING id`, invoiceID, providerSessionID, amount).Scan(&paymentID)
+	 VALUES ($1, $2, $3, $4, 'pending', (NOW() AT TIME ZONE 'UTC')) RETURNING id`, invoiceID, providerName, providerSessionID, amount).Scan(&paymentID)
 	if err != nil {
 		return fmt.Errorf("create pending payment: %w", err)
 	}

@@ -140,6 +140,19 @@ func (s *CheckoutService) RecoverCheckout(ctx context.Context, id int64, session
 }
 
 func (s *CheckoutService) reconcileRecord(ctx context.Context, record *models.CheckoutRecord, sessionID string) error {
+	if record.Provider == "midtrans" {
+		if record.ProviderSessionID == nil || *record.ProviderSessionID != sessionID {
+			return fmt.Errorf("provider session identity conflict")
+		}
+		if record.Status == "creating" {
+			if err := s.repo.Activate(ctx, record.ID, record.InvoiceID, "midtrans", record.InvoiceAmount, sessionID, record.ExpiresAt); err != nil {
+				return err
+			}
+		}
+		// Snap payment outcomes arrive through the signed Midtrans notification.
+		// Do not poll Xendit or infer payment status from the browser's callback.
+		return nil
+	}
 	if record.ProviderSessionID != nil && *record.ProviderSessionID != sessionID {
 		return fmt.Errorf("provider session identity conflict")
 	}
@@ -167,7 +180,7 @@ func (s *CheckoutService) reconcileRecord(ctx context.Context, record *models.Ch
 			if err := s.repo.RememberSession(ctx, record.ID, sessionID); err != nil {
 				return err
 			}
-			if err := s.repo.Activate(ctx, record.ID, record.InvoiceID, record.InvoiceAmount, sessionID, session.ExpiresAt); err != nil {
+			if err := s.repo.Activate(ctx, record.ID, record.InvoiceID, "xendit", record.InvoiceAmount, sessionID, session.ExpiresAt); err != nil {
 				return err
 			}
 		}

@@ -13,6 +13,7 @@ import (
 	"math"
 	"net/mail"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,18 +69,56 @@ func (s *CheckoutService) SetBusinessGatewayResolver(resolver businessGatewayRes
 	s.businessGateways = resolver
 }
 
-func (s *CheckoutService) xenditForBusiness(ctx context.Context, businessID string) (SessionProvider, error) {
+func (s *CheckoutService) gatewayForBusiness(ctx context.Context, businessID string) (*BusinessGatewayRuntime, error) {
 	if s.businessGateways == nil {
-		return s.provider, nil
+		return nil, nil
 	}
-	config, err := s.businessGateways.LoadForBusiness(ctx, businessID)
-	if err != nil {
+	gateway, err := s.businessGateways.LoadForBusiness(ctx, businessID)
+	if errors.Is(err, utils.ErrNotFound) {
 		return nil, fmt.Errorf("%w: configure your payment gateway before accepting payments", utils.ErrConflict)
 	}
-	if config.Config.Provider != "xendit" {
-		return nil, fmt.Errorf("%w: %s checkout will be available in the next integration stage", utils.ErrConflict, config.Config.Provider)
+	if err != nil {
+		return nil, fmt.Errorf("load business payment gateway: %w", err)
 	}
-	return provider.NewXenditProvider(config.Config.XenditSecretKey, config.Config.XenditCallbackToken, "https://api.xendit.co", false)
+	if gateway == nil {
+		return nil, fmt.Errorf("%w: configure your payment gateway before accepting payments", utils.ErrConflict)
+	}
+	return gateway, nil
+}
+
+func (s *CheckoutService) xenditForBusiness(ctx context.Context, businessID string) (SessionProvider, error) {
+	gateway, err := s.gatewayForBusiness(ctx, businessID)
+	if err != nil {
+		return nil, err
+	}
+	if gateway == nil {
+		return s.provider, nil
+	}
+	if gateway.Config.Provider != "xendit" {
+		return nil, fmt.Errorf("%w: checkout provider does not match the Xendit session", utils.ErrConflict)
+	}
+	return provider.NewXenditProvider(gateway.Config.XenditSecretKey, gateway.Config.XenditCallbackToken, "https://api.xendit.co", false)
+}
+
+func (s *CheckoutService) midtransForBusiness(gateway *BusinessGatewayRuntime) *provider.MidtransProvider {
+	baseURL := "https://app.sandbox.midtrans.com"
+	if gateway.Config.Environment == "production" {
+		baseURL = "https://app.midtrans.com"
+	}
+	return provider.NewMidtransProvider(gateway.Config.MidtransServerKey, gateway.Config.MidtransClientKey, baseURL, false)
+}
+
+func midtransSnapScriptURL(environment string) string {
+	if environment == "production" {
+		return "https://app.midtrans.com/snap/snap.js"
+	}
+	return "https://app.sandbox.midtrans.com/snap/snap.js"
+}
+
+func midtransCheckoutResponse(snapToken, clientKey, environment string, expiresAt time.Time) *models.StartCheckoutResponse {
+	return &models.StartCheckoutResponse{Provider: "midtrans", PaymentSessionID: snapToken, Mode: "SNAP",
+		SnapToken: snapToken, SnapClientKey: clientKey, SnapScriptURL: midtransSnapScriptURL(environment),
+		ExpiresAt: expiresAt, Status: "active"}
 }
 
 func validBaseURL(value string, requireHTTPS bool) bool {
@@ -97,10 +136,16 @@ func (s *CheckoutService) CreateLink(ctx context.Context, invoiceID int, busines
 	if invoiceID < 1 || businessID == "" {
 		return nil, fmt.Errorf("%w: invoice and business are required", utils.ErrBadRequest)
 	}
-	if s.businessGateways != nil {
-		if _, err := s.xenditForBusiness(ctx, businessID); err != nil {
-			return nil, err
-		}
+	gateway, err := s.gatewayForBusiness(ctx, businessID)
+	if err != nil {
+		return nil, err
+	}
+	providerName := "xendit"
+	if gateway != nil {
+		providerName = gateway.Config.Provider
+	}
+	if providerName != "xendit" && providerName != "midtrans" {
+		return nil, fmt.Errorf("%w: unsupported payment gateway", utils.ErrBadRequest)
 	}
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -119,7 +164,7 @@ func (s *CheckoutService) CreateLink(ctx context.Context, invoiceID int, busines
 		return nil, fmt.Errorf("%w: only pending invoices can be paid", utils.ErrConflict)
 	}
 	if float64(amount) != record.InvoiceAmount || amount < 5000 || amount > 200000000 {
-		return nil, fmt.Errorf("%w: Xendit card checkout requires a whole-rupiah amount between IDR 5,000 and IDR 200,000,000", utils.ErrBadRequest)
+		return nil, fmt.Errorf("%w: checkout requires a whole-rupiah amount between IDR 5,000 and IDR 200,000,000", utils.ErrBadRequest)
 	}
 	var activeSessions int
 	if err := tx.GetContext(ctx, &activeSessions, `SELECT count(*) FROM checkout_sessions
@@ -150,6 +195,7 @@ func (s *CheckoutService) CreateLink(ctx context.Context, invoiceID int, busines
 	}
 	checkout := &models.CheckoutSession{
 		InvoiceID:       invoiceID,
+		Provider:        providerName,
 		PublicTokenHash: hashToken(token),
 		ReferenceID:     fmt.Sprintf("invoice_%d_%s", invoiceID, suffix),
 		ExpiresAt:       time.Now().UTC().Add(s.ttl),
@@ -191,13 +237,30 @@ func (s *CheckoutService) Start(ctx context.Context, token string, request model
 	if record.InvoiceStatus != "pending" || !record.ExpiresAt.After(time.Now()) {
 		return nil, fmt.Errorf("%w: checkout is no longer available", utils.ErrConflict)
 	}
-	checkoutProvider, err := s.xenditForBusiness(ctx, record.BusinessID)
+	gateway, err := s.gatewayForBusiness(ctx, record.BusinessID)
 	if err != nil {
 		return nil, err
+	}
+	providerName := record.Provider
+	if providerName == "" {
+		providerName = "xendit"
+	}
+	if gateway != nil && gateway.Config.Provider != providerName {
+		return nil, fmt.Errorf("%w: the business payment gateway changed after this checkout link was created; create a new link", utils.ErrConflict)
 	}
 	if record.Status == "active" && record.ProviderSessionID != nil {
 		if record.PaymentLinkURL != nil && *record.PaymentLinkURL != "" {
 			return nil, fmt.Errorf("%w: existing hosted session must finish or expire before using components", utils.ErrConflict)
+		}
+		if providerName == "midtrans" {
+			if gateway == nil {
+				return nil, fmt.Errorf("%w: Midtrans account configuration is unavailable", utils.ErrConflict)
+			}
+			return midtransCheckoutResponse(*record.ProviderSessionID, gateway.Config.MidtransClientKey, gateway.Config.Environment, record.ExpiresAt), nil
+		}
+		checkoutProvider, err := s.xenditForBusiness(ctx, record.BusinessID)
+		if err != nil {
+			return nil, err
 		}
 		session, err := checkoutProvider.GetCardSession(ctx, *record.ProviderSessionID, record.ReferenceID)
 		if err != nil {
@@ -232,25 +295,59 @@ func (s *CheckoutService) Start(ctx context.Context, token string, request model
 		return nil, fmt.Errorf("%w: checkout is already being processed", utils.ErrConflict)
 	}
 	amount := int64(record.InvoiceAmount)
-	appURL, _ := url.Parse(s.publicBaseURL)
-	response, err := checkoutProvider.CreateCardSession(ctx, provider.XenditSessionRequest{
-		ReferenceID: record.ReferenceID, Amount: amount,
-		CustomerReferenceID: fmt.Sprintf("customer_%d", record.CustomerID), CustomerName: name,
-		CustomerEmail: email, CustomerMobile: mobile,
-		Description:       fmt.Sprintf("%s - %s", record.InvoiceNumber, record.PlanName),
-		ComponentsOrigins: []string{appURL.Scheme + "://" + appURL.Host},
-		ReturnURL:         returnURL,
-	})
-	if err != nil {
+	var sessionID string
+	var checkout *models.StartCheckoutResponse
+	var createErr error
+	if providerName == "midtrans" {
+		if gateway == nil {
+			createErr = fmt.Errorf("Midtrans account configuration is unavailable")
+		} else {
+			firstName, lastName := splitCustomerName(name)
+			snap, snapErr := s.midtransForBusiness(gateway).CreateSnapTransaction(ctx, provider.MidtransSnapRequest{
+				OrderID: record.ReferenceID, Amount: amount, FirstName: firstName, LastName: lastName,
+				Email: email, Phone: strings.TrimPrefix(mobile, "+"),
+			})
+			createErr = snapErr
+			if snapErr == nil && snap != nil {
+				sessionID = snap.Token
+				checkout = midtransCheckoutResponse(snap.Token, gateway.Config.MidtransClientKey, gateway.Config.Environment, record.ExpiresAt)
+			} else if snapErr == nil {
+				createErr = fmt.Errorf("Midtrans did not return a Snap transaction token")
+			}
+		}
+	} else {
+		checkoutProvider, providerErr := s.xenditForBusiness(ctx, record.BusinessID)
+		if providerErr != nil {
+			createErr = providerErr
+		} else {
+			appURL, _ := url.Parse(s.publicBaseURL)
+			var response *provider.XenditSessionResponse
+			response, createErr = checkoutProvider.CreateCardSession(ctx, provider.XenditSessionRequest{
+				ReferenceID: record.ReferenceID, Amount: amount,
+				CustomerReferenceID: fmt.Sprintf("customer_%d", record.CustomerID), CustomerName: name,
+				CustomerEmail: email, CustomerMobile: mobile,
+				Description:       fmt.Sprintf("%s - %s", record.InvoiceNumber, record.PlanName),
+				ComponentsOrigins: []string{appURL.Scheme + "://" + appURL.Host},
+				ReturnURL:         returnURL,
+			})
+			if createErr == nil && response != nil {
+				sessionID = response.PaymentSessionID
+				checkout, createErr = componentsCheckoutResponse(response, record.ExpiresAt)
+			} else if createErr == nil {
+				createErr = fmt.Errorf("Xendit did not return a payment session")
+			}
+		}
+	}
+	if createErr != nil {
 		// A disconnected browser must not prevent recording an uncertain outcome.
 		recoveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		if provider.SessionCreationRejected(err) {
+		if providerName == "midtrans" || provider.SessionCreationRejected(createErr) {
 			if saveErr := s.repo.MarkFailed(recoveryCtx, record.ID); saveErr != nil {
 				return nil, saveErr
 			}
 			var validation *provider.ValidationError
-			if errors.As(err, &validation) {
+			if errors.As(createErr, &validation) {
 				return nil, fmt.Errorf("%w: %v", utils.ErrBadRequest, validation)
 			}
 		} else {
@@ -260,21 +357,28 @@ func (s *CheckoutService) Start(ctx context.Context, token string, request model
 				return nil, saveErr
 			}
 		}
-		return nil, fmt.Errorf("create Xendit checkout: %w", err)
+		return nil, fmt.Errorf("create %s checkout: %w", providerName, createErr)
 	}
 	recoveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.repo.RememberSession(recoveryCtx, record.ID, response.PaymentSessionID); err != nil {
+	if err := s.repo.RememberSession(recoveryCtx, record.ID, sessionID); err != nil {
 		return nil, err
 	}
-	checkout, err := componentsCheckoutResponse(response, record.ExpiresAt)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.repo.Activate(recoveryCtx, record.ID, record.InvoiceID, record.InvoiceAmount, response.PaymentSessionID, checkout.ExpiresAt); err != nil {
+	if err := s.repo.Activate(recoveryCtx, record.ID, record.InvoiceID, providerName, record.InvoiceAmount, sessionID, checkout.ExpiresAt); err != nil {
 		return nil, err
 	}
 	return checkout, nil
+}
+
+func splitCustomerName(name string) (string, string) {
+	parts := strings.Fields(name)
+	if len(parts) == 0 {
+		return "Customer", ""
+	}
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return parts[0], strings.Join(parts[1:], " ")
 }
 
 func componentsCheckoutResponse(session *provider.XenditSessionResponse, expiresAt time.Time) (*models.StartCheckoutResponse, error) {
@@ -285,7 +389,7 @@ func componentsCheckoutResponse(session *provider.XenditSessionResponse, expires
 	if session.ExpiresAt.Before(expiresAt) {
 		expiresAt = session.ExpiresAt
 	}
-	return &models.StartCheckoutResponse{PaymentSessionID: session.PaymentSessionID, Mode: "COMPONENTS",
+	return &models.StartCheckoutResponse{Provider: "xendit", PaymentSessionID: session.PaymentSessionID, Mode: "COMPONENTS",
 		ComponentsSDKKey: session.ComponentsSDKKey, Status: "active", ExpiresAt: expiresAt}, nil
 }
 
@@ -383,6 +487,140 @@ func (s *CheckoutService) ProcessBusinessXenditWebhook(ctx context.Context, webh
 		return false, fmt.Errorf("%w: webhook does not match this business", utils.ErrBadRequest)
 	}
 	return s.acceptSessionEvent(ctx, event)
+}
+
+// ProcessBusinessGatewayWebhook dispatches callbacks using the gateway attached
+// to the opaque webhook ID. Midtrans authenticates each event with its signed
+// notification body; Xendit uses its callback token header.
+func (s *CheckoutService) ProcessBusinessGatewayWebhook(ctx context.Context, webhookID, callbackToken string, payload []byte) (bool, error) {
+	if s.businessGateways == nil {
+		return false, utils.ErrNotFound
+	}
+	gateway, err := s.businessGateways.LoadForWebhook(ctx, webhookID)
+	if err != nil || gateway == nil {
+		return false, utils.ErrUnauthorized
+	}
+	switch gateway.Config.Provider {
+	case "xendit":
+		return s.ProcessBusinessXenditWebhook(ctx, webhookID, callbackToken, payload)
+	case "midtrans":
+		return s.processBusinessMidtransWebhook(ctx, gateway, payload)
+	default:
+		return false, utils.ErrUnauthorized
+	}
+}
+
+type midtransNotification struct {
+	OrderID           string `json:"order_id"`
+	StatusCode        string `json:"status_code"`
+	GrossAmount       string `json:"gross_amount"`
+	TransactionStatus string `json:"transaction_status"`
+	TransactionID     string `json:"transaction_id"`
+	MerchantID        string `json:"merchant_id"`
+	FraudStatus       string `json:"fraud_status"`
+	SignatureKey      string `json:"signature_key"`
+}
+
+func (s *CheckoutService) processBusinessMidtransWebhook(ctx context.Context, gateway *BusinessGatewayRuntime, payload []byte) (bool, error) {
+	var event midtransNotification
+	if err := json.Unmarshal(payload, &event); err != nil || event.OrderID == "" || event.TransactionID == "" {
+		return false, fmt.Errorf("%w: invalid Midtrans notification", utils.ErrBadRequest)
+	}
+	if event.MerchantID != gateway.Config.MidtransMerchantID || !provider.VerifyMidtransNotificationSignature(
+		event.OrderID, event.StatusCode, event.GrossAmount, gateway.Config.MidtransServerKey, event.SignatureKey) {
+		return false, utils.ErrUnauthorized
+	}
+	amount, err := strconv.ParseFloat(event.GrossAmount, 64)
+	if err != nil || amount <= 0 || amount != math.Trunc(amount) {
+		return false, fmt.Errorf("%w: invalid Midtrans transaction amount", utils.ErrBadRequest)
+	}
+	successful := event.TransactionStatus == "settlement" || (event.TransactionStatus == "capture" && event.FraudStatus == "accept")
+	if successful && event.StatusCode != "200" {
+		return false, fmt.Errorf("%w: successful Midtrans notification has invalid status code", utils.ErrBadRequest)
+	}
+	eventType := "midtrans:" + event.TransactionStatus + ":" + event.TransactionID
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var invoiceID int
+	if err = tx.GetContext(ctx, &invoiceID, `SELECT invoice_id FROM checkout_sessions WHERE reference_id=$1`, event.OrderID); err != nil {
+		return false, fmt.Errorf("%w: Midtrans checkout not found", utils.ErrBadRequest)
+	}
+	var lockedInvoiceID int
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM invoices WHERE id=$1 FOR UPDATE`, invoiceID).Scan(&lockedInvoiceID); err != nil {
+		return false, err
+	}
+	var checkout struct {
+		ID             int64   `db:"id"`
+		InvoiceID      int     `db:"invoice_id"`
+		PaymentID      *int    `db:"payment_id"`
+		ReferenceID    string  `db:"reference_id"`
+		Amount         float64 `db:"amount"`
+		CheckoutStatus string  `db:"checkout_status"`
+		InvoiceStatus  string  `db:"invoice_status"`
+		Provider       string  `db:"provider"`
+		BusinessID     string  `db:"business_id"`
+	}
+	err = tx.GetContext(ctx, &checkout, `SELECT cs.id,cs.invoice_id,cs.payment_id,cs.reference_id,i.amount::float8 AS amount,
+ cs.status AS checkout_status,i.status AS invoice_status,cs.provider,b.id AS business_id
+ FROM checkout_sessions cs JOIN invoices i ON i.id=cs.invoice_id JOIN subscriptions s ON s.id=i.subscription_id
+ JOIN customers c ON c.id=s.customer_id JOIN businesses b ON b.id=c.business_id
+	 WHERE cs.reference_id=$1 FOR UPDATE OF cs`, event.OrderID)
+	if err != nil || checkout.Provider != "midtrans" || checkout.BusinessID != gateway.BusinessID || checkout.Amount != amount {
+		return false, fmt.Errorf("%w: Midtrans notification does not match checkout", utils.ErrBadRequest)
+	}
+	storedEvent, _ := json.Marshal(event)
+	var webhookEventID int64
+	err = tx.QueryRowContext(ctx, `INSERT INTO webhook_events(provider,event_type,reference_id,payload,received_at,created_at)
+ VALUES('midtrans',$1,$2,$3::jsonb,(NOW() AT TIME ZONE 'UTC'),(NOW() AT TIME ZONE 'UTC'))
+ ON CONFLICT(provider,event_type,reference_id) WHERE reference_id IS NOT NULL DO NOTHING RETURNING id`, eventType, event.OrderID, string(storedEvent)).Scan(&webhookEventID)
+	if err == sql.ErrNoRows {
+		return true, tx.Commit()
+	}
+	if err != nil {
+		return false, err
+	}
+	if successful {
+		if checkout.InvoiceStatus != "pending" && checkout.InvoiceStatus != "paid" {
+			return false, fmt.Errorf("%w: invoice cannot accept payment", utils.ErrConflict)
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE invoices SET status='paid',paid_at=COALESCE(paid_at,(NOW() AT TIME ZONE 'UTC')) WHERE id=$1 AND status IN ('pending','paid')`, checkout.InvoiceID); err != nil {
+			return false, err
+		}
+		if checkout.PaymentID == nil {
+			var paymentID int
+			if err = tx.QueryRowContext(ctx, `INSERT INTO payments(invoice_id,provider,provider_transaction_id,amount,status,paid_at,created_at)
+ VALUES($1,'midtrans',$2,$3,'success',(NOW() AT TIME ZONE 'UTC'),(NOW() AT TIME ZONE 'UTC')) RETURNING id`, checkout.InvoiceID, event.TransactionID, amount).Scan(&paymentID); err != nil {
+				return false, err
+			}
+			checkout.PaymentID = &paymentID
+		} else if _, err = tx.ExecContext(ctx, `UPDATE payments SET provider_transaction_id=$2,status='success',paid_at=(NOW() AT TIME ZONE 'UTC') WHERE id=$1 AND provider='midtrans'`, *checkout.PaymentID, event.TransactionID); err != nil {
+			return false, err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE checkout_sessions SET status='completed',payment_id=COALESCE(payment_id,$2),review_required=FALSE,last_error=NULL,updated_at=(NOW() AT TIME ZONE 'UTC') WHERE id=$1 AND status <> 'completed'`, checkout.ID, *checkout.PaymentID); err != nil {
+			return false, err
+		}
+	} else if event.TransactionStatus == "expire" || event.TransactionStatus == "cancel" || event.TransactionStatus == "deny" {
+		if checkout.CheckoutStatus == "active" {
+			if _, err = tx.ExecContext(ctx, `UPDATE checkout_sessions SET status='expired',updated_at=(NOW() AT TIME ZONE 'UTC') WHERE id=$1 AND status='active'`, checkout.ID); err != nil {
+				return false, err
+			}
+			if checkout.PaymentID != nil {
+				if _, err = tx.ExecContext(ctx, `UPDATE payments SET status='failed' WHERE id=$1 AND status='pending'`, *checkout.PaymentID); err != nil {
+					return false, err
+				}
+			}
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE webhook_events SET processed=TRUE,processed_at=(NOW() AT TIME ZONE 'UTC') WHERE id=$1`, webhookEventID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // Called only for authenticated inbox events or verified provider GET responses.

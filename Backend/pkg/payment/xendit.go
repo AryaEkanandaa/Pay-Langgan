@@ -74,7 +74,11 @@ func SessionCreationRejected(err error) bool {
 		return true
 	}
 	var api *XenditAPIError
-	return errors.As(err, &api) && (api.StatusCode == 400 || api.StatusCode == 401 || api.StatusCode == 403 || api.StatusCode == 404 || api.StatusCode == 422)
+	if errors.As(err, &api) {
+		return api.StatusCode == 400 || api.StatusCode == 401 || api.StatusCode == 403 || api.StatusCode == 404 || api.StatusCode == 422
+	}
+	var midtrans *MidtransAPIError
+	return errors.As(err, &midtrans) && (midtrans.StatusCode == 400 || midtrans.StatusCode == 401 || midtrans.StatusCode == 403 || midtrans.StatusCode == 404 || midtrans.StatusCode == 422)
 }
 
 type XenditAPIError struct {

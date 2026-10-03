@@ -22,6 +22,7 @@ type CheckoutSession struct {
 type CheckoutRecord struct {
 	ID                int64     `db:"checkout_id"`
 	BusinessID        string    `db:"business_id"`
+	Provider          string    `db:"provider"`
 	InvoiceID         int       `db:"invoice_id"`
 	PaymentID         *int      `db:"payment_id"`
 	ReferenceID       string    `db:"reference_id"`
@@ -67,9 +68,13 @@ type StartCheckoutRequest struct {
 }
 
 type StartCheckoutResponse struct {
+	Provider         string    `json:"provider"`
 	PaymentSessionID string    `json:"payment_session_id"`
 	Mode             string    `json:"mode"`
 	ComponentsSDKKey string    `json:"components_sdk_key"`
+	SnapToken        string    `json:"snap_token,omitempty"`
+	SnapClientKey    string    `json:"snap_client_key,omitempty"`
+	SnapScriptURL    string    `json:"snap_script_url,omitempty"`
 	ExpiresAt        time.Time `json:"expires_at"`
 	Status           string    `json:"status"`
 }
