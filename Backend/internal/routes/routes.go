@@ -38,6 +38,7 @@ type AllHandlers struct {
 	Invoice         *billing.InvoiceHandler
 	Checkout        *paymenthttp.CheckoutHandler
 	Merchant        *paymenthttp.MerchantIntegrationHandler
+	BusinessGateway *paymenthttp.BusinessGatewayHandler
 	PlatformBilling *platformhttp.Handler
 	Dashboard       *revenue.DashboardHandler
 }
@@ -94,6 +95,10 @@ func RegisterRoutes(e *echo.Echo, h *AllHandlers, jwtSecret string) {
 	merchantKeys.POST("", h.Merchant.CreateKey)
 	merchantKeys.GET("", h.Merchant.ListKeys)
 	merchantKeys.DELETE("/:id", h.Merchant.RevokeKey)
+	businessGateway := protected.Group("/settings/payment-gateway", middlewares.RequireTenantUser, middlewares.RequireRoles(models.RoleAdmin))
+	businessGateway.GET("", h.BusinessGateway.Get)
+	businessGateway.PUT("", h.BusinessGateway.Save)
+	businessGateway.DELETE("", h.BusinessGateway.Delete)
 	embedSites := protected.Group("/integrations/embed-sites", middlewares.RequireTenantUser, middlewares.RequireRoles(models.RoleAdmin))
 	embedSites.POST("", h.Merchant.CreateEmbedSite)
 	embedSites.GET("", h.Merchant.ListEmbedSites)

@@ -13,6 +13,7 @@ type Config struct {
 	AppEnv       string
 	AppPort      string
 	AppPublicURL string
+	APIPublicURL string
 
 	DBHost     string
 	DBPort     string
@@ -28,6 +29,8 @@ type Config struct {
 	MidtransClientKey string
 	MidtransBaseURL   string
 	MidtransMock      bool
+
+	PaymentCredentialEncryptionKey string
 
 	XenditSecretKey     string
 	XenditCallbackToken string
@@ -46,6 +49,7 @@ func Load() *Config {
 		AppEnv:       getEnv("APP_ENV", "development"),
 		AppPort:      getEnv("APP_PORT", "8080"),
 		AppPublicURL: getEnv("APP_PUBLIC_URL", "http://localhost:5173"),
+		APIPublicURL: getEnv("API_PUBLIC_URL", "http://localhost:8080"),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "5432"),
@@ -57,10 +61,11 @@ func Load() *Config {
 		JWTSecret:    getEnv("JWT_SECRET", "change_this_secret"),
 		JWTExpiresIn: getDuration("JWT_EXPIRES_IN", 24*time.Hour),
 
-		MidtransServerKey: getEnv("MIDTRANS_SERVER_KEY", ""),
-		MidtransClientKey: getEnv("MIDTRANS_CLIENT_KEY", ""),
-		MidtransBaseURL:   getEnv("MIDTRANS_BASE_URL", "https://api.sandbox.midtrans.com"),
-		MidtransMock:      getBool("MIDTRANS_MOCK", true),
+		MidtransServerKey:              getEnv("MIDTRANS_SERVER_KEY", ""),
+		MidtransClientKey:              getEnv("MIDTRANS_CLIENT_KEY", ""),
+		MidtransBaseURL:                getEnv("MIDTRANS_BASE_URL", "https://api.sandbox.midtrans.com"),
+		MidtransMock:                   getBool("MIDTRANS_MOCK", true),
+		PaymentCredentialEncryptionKey: getEnv("PAYMENT_CREDENTIAL_ENCRYPTION_KEY", ""),
 
 		XenditSecretKey:     getEnv("XENDIT_SECRET_KEY", ""),
 		XenditCallbackToken: getEnv("XENDIT_CALLBACK_TOKEN", ""),

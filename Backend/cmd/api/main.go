@@ -88,6 +88,7 @@ func main() {
 		log.Fatalf("Failed to configure checkout: %v", err)
 	}
 	merchantService := paymentsvc.NewMerchantIntegrationService(db, checkoutService, invoiceRepo)
+	businessGatewayService := paymentsvc.NewBusinessGatewayService(db, cfg.PaymentCredentialEncryptionKey, cfg.APIPublicURL)
 	platformService, err := platformsvc.NewService(db, xenditProvider, cfg.AppPublicURL, cfg.XenditReturnBaseURL)
 	if err != nil {
 		log.Fatalf("Failed to configure platform billing: %v", err)
@@ -106,6 +107,7 @@ func main() {
 	invoiceHandler := billinghttp.NewInvoiceHandler(invoiceService)
 	checkoutHandler := paymenthttp.NewCheckoutHandler(checkoutService)
 	merchantHandler := paymenthttp.NewMerchantIntegrationHandler(merchantService)
+	businessGatewayHandler := paymenthttp.NewBusinessGatewayHandler(businessGatewayService)
 
 	e := echo.New()
 
@@ -138,6 +140,7 @@ func main() {
 		Invoice:         invoiceHandler,
 		Checkout:        checkoutHandler,
 		Merchant:        merchantHandler,
+		BusinessGateway: businessGatewayHandler,
 		PlatformBilling: &platformhttp.Handler{Service: platformService},
 		Dashboard:       dashboardHandler,
 	}, cfg.JWTSecret)
