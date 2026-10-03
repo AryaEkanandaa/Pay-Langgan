@@ -24,7 +24,7 @@ const checkoutRecordColumns = `SELECT cs.id AS checkout_id, cs.invoice_id, cs.pa
  cs.expires_at,
  i.invoice_number, i.amount AS invoice_amount, i.status AS invoice_status,
  c.id AS customer_id, c.name AS customer_name, c.email AS default_email,
- c.contact AS default_mobile, b.name AS business_name, pl.name AS plan_name
+ c.contact AS default_mobile, b.id AS business_id, b.name AS business_name, pl.name AS plan_name
  FROM checkout_sessions cs
  JOIN invoices i ON i.id = cs.invoice_id
  JOIN subscriptions s ON s.id = i.subscription_id

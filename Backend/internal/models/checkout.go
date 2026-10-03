@@ -21,6 +21,7 @@ type CheckoutSession struct {
 
 type CheckoutRecord struct {
 	ID                int64     `db:"checkout_id"`
+	BusinessID        string    `db:"business_id"`
 	InvoiceID         int       `db:"invoice_id"`
 	PaymentID         *int      `db:"payment_id"`
 	ReferenceID       string    `db:"reference_id"`

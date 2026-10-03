@@ -31,13 +31,19 @@ type SessionProvider interface {
 }
 
 type CheckoutService struct {
-	db             *database.DB
-	repo           *paymentrepo.CheckoutRepository
-	provider       SessionProvider
-	publicBaseURL  string
-	returnBaseURL  string
-	ttl            time.Duration
-	autopayEnabled bool
+	db               *database.DB
+	repo             *paymentrepo.CheckoutRepository
+	provider         SessionProvider
+	publicBaseURL    string
+	returnBaseURL    string
+	ttl              time.Duration
+	autopayEnabled   bool
+	businessGateways businessGatewayResolver
+}
+
+type businessGatewayResolver interface {
+	LoadForBusiness(context.Context, string) (*BusinessGatewayRuntime, error)
+	LoadForWebhook(context.Context, string) (*BusinessGatewayRuntime, error)
 }
 
 func NewCheckoutService(db *database.DB, repo *paymentrepo.CheckoutRepository, sessionProvider SessionProvider, publicBaseURL, returnBaseURL string, ttl time.Duration) (*CheckoutService, error) {
@@ -56,6 +62,26 @@ func NewCheckoutService(db *database.DB, repo *paymentrepo.CheckoutRepository, s
 		publicBaseURL: publicBaseURL, returnBaseURL: returnBaseURL, ttl: ttl}, nil
 }
 
+// SetBusinessGatewayResolver enables per-tenant provider credentials. Platform
+// billing continues to use its separately configured provider instance.
+func (s *CheckoutService) SetBusinessGatewayResolver(resolver businessGatewayResolver) {
+	s.businessGateways = resolver
+}
+
+func (s *CheckoutService) xenditForBusiness(ctx context.Context, businessID string) (SessionProvider, error) {
+	if s.businessGateways == nil {
+		return s.provider, nil
+	}
+	config, err := s.businessGateways.LoadForBusiness(ctx, businessID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: configure your payment gateway before accepting payments", utils.ErrConflict)
+	}
+	if config.Config.Provider != "xendit" {
+		return nil, fmt.Errorf("%w: %s checkout will be available in the next integration stage", utils.ErrConflict, config.Config.Provider)
+	}
+	return provider.NewXenditProvider(config.Config.XenditSecretKey, config.Config.XenditCallbackToken, "https://api.xendit.co", false)
+}
+
 func validBaseURL(value string, requireHTTPS bool) bool {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
@@ -70,6 +96,11 @@ func validBaseURL(value string, requireHTTPS bool) bool {
 func (s *CheckoutService) CreateLink(ctx context.Context, invoiceID int, businessID string) (*models.CheckoutLinkResponse, error) {
 	if invoiceID < 1 || businessID == "" {
 		return nil, fmt.Errorf("%w: invoice and business are required", utils.ErrBadRequest)
+	}
+	if s.businessGateways != nil {
+		if _, err := s.xenditForBusiness(ctx, businessID); err != nil {
+			return nil, err
+		}
 	}
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -160,11 +191,15 @@ func (s *CheckoutService) Start(ctx context.Context, token string, request model
 	if record.InvoiceStatus != "pending" || !record.ExpiresAt.After(time.Now()) {
 		return nil, fmt.Errorf("%w: checkout is no longer available", utils.ErrConflict)
 	}
+	checkoutProvider, err := s.xenditForBusiness(ctx, record.BusinessID)
+	if err != nil {
+		return nil, err
+	}
 	if record.Status == "active" && record.ProviderSessionID != nil {
 		if record.PaymentLinkURL != nil && *record.PaymentLinkURL != "" {
 			return nil, fmt.Errorf("%w: existing hosted session must finish or expire before using components", utils.ErrConflict)
 		}
-		session, err := s.provider.GetCardSession(ctx, *record.ProviderSessionID, record.ReferenceID)
+		session, err := checkoutProvider.GetCardSession(ctx, *record.ProviderSessionID, record.ReferenceID)
 		if err != nil {
 			return nil, fmt.Errorf("retrieve Xendit checkout: %w", err)
 		}
@@ -198,7 +233,7 @@ func (s *CheckoutService) Start(ctx context.Context, token string, request model
 	}
 	amount := int64(record.InvoiceAmount)
 	appURL, _ := url.Parse(s.publicBaseURL)
-	response, err := s.provider.CreateCardSession(ctx, provider.XenditSessionRequest{
+	response, err := checkoutProvider.CreateCardSession(ctx, provider.XenditSessionRequest{
 		ReferenceID: record.ReferenceID, Amount: amount,
 		CustomerReferenceID: fmt.Sprintf("customer_%d", record.CustomerID), CustomerName: name,
 		CustomerEmail: email, CustomerMobile: mobile,
@@ -316,6 +351,37 @@ func (s *CheckoutService) ProcessWebhook(ctx context.Context, callbackToken stri
 		return false, fmt.Errorf("%w: incomplete Xendit session event", utils.ErrBadRequest)
 	}
 
+	return s.acceptSessionEvent(ctx, event)
+}
+
+// ProcessBusinessXenditWebhook verifies the callback token belonging to the
+// business identified by the unguessable webhook path before persisting it.
+func (s *CheckoutService) ProcessBusinessXenditWebhook(ctx context.Context, webhookID, callbackToken string, payload []byte) (bool, error) {
+	if s.businessGateways == nil {
+		return false, utils.ErrNotFound
+	}
+	config, err := s.businessGateways.LoadForWebhook(ctx, webhookID)
+	if err != nil || config.Config.Provider != "xendit" {
+		return false, utils.ErrUnauthorized
+	}
+	accountProvider, err := provider.NewXenditProvider(config.Config.XenditSecretKey, config.Config.XenditCallbackToken, "https://api.xendit.co", false)
+	if err != nil || !accountProvider.VerifyCallbackToken(callbackToken) {
+		return false, utils.ErrUnauthorized
+	}
+	var event xenditSessionWebhook
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return false, fmt.Errorf("%w: invalid webhook payload", utils.ErrBadRequest)
+	}
+	if event.Event != "payment_session.completed" && event.Event != "payment_session.expired" ||
+		event.Data.PaymentSessionID == "" || event.Data.ReferenceID == "" {
+		return false, fmt.Errorf("%w: unsupported or incomplete Xendit event", utils.ErrBadRequest)
+	}
+	var owner string
+	if err := s.db.GetContext(ctx, &owner, `SELECT b.id FROM checkout_sessions cs JOIN invoices i ON i.id=cs.invoice_id
+ JOIN subscriptions sub ON sub.id=i.subscription_id JOIN customers c ON c.id=sub.customer_id JOIN businesses b ON b.id=c.business_id
+ WHERE cs.reference_id=$1`, event.Data.ReferenceID); err != nil || owner != config.BusinessID {
+		return false, fmt.Errorf("%w: webhook does not match this business", utils.ErrBadRequest)
+	}
 	return s.acceptSessionEvent(ctx, event)
 }
 

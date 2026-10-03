@@ -61,6 +61,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	checkout.SetBusinessGatewayResolver(service.NewBusinessGatewayService(db, cfg.PaymentCredentialEncryptionKey, cfg.APIPublicURL))
 	checkout.EnableAutopay(cfg.AutopayEnabled)
 	if *once || *retryEvent != 0 || *recoverCheckout != 0 || *recoverAutopay != 0 {
 		ctx, cancel := context.WithTimeout(ctx, *timeout)

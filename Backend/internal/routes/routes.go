@@ -73,6 +73,7 @@ func RegisterRoutes(e *echo.Echo, h *AllHandlers, jwtSecret string) {
 		}
 		return h.Checkout.XenditWebhook(c)
 	})
+	api.POST("/webhooks/business-gateways/:webhookID", h.Checkout.BusinessXenditWebhook)
 	api.POST("/webhooks/xendit/platform-payment-sessions", h.PlatformBilling.Webhook)
 
 	protected := api.Group("")

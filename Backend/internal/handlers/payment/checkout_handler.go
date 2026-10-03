@@ -75,6 +75,20 @@ func (h *CheckoutHandler) XenditWebhook(c echo.Context) error {
 	return utils.Success(c, "Webhook accepted", map[string]bool{"duplicate": duplicate})
 }
 
+func (h *CheckoutHandler) BusinessXenditWebhook(c echo.Context) error {
+	request := c.Request()
+	request.Body = http.MaxBytesReader(c.Response(), request.Body, maxWebhookBody)
+	payload, err := io.ReadAll(request.Body)
+	if err != nil {
+		return utils.BadRequest(c, "invalid webhook body")
+	}
+	duplicate, err := h.service.ProcessBusinessXenditWebhook(request.Context(), c.Param("webhookID"), request.Header.Get("x-callback-token"), payload)
+	if err != nil {
+		return checkoutError(c, err)
+	}
+	return utils.Success(c, "Webhook accepted", map[string]bool{"duplicate": duplicate})
+}
+
 func checkoutError(c echo.Context, err error) error {
 	switch {
 	case errors.Is(err, utils.ErrNotFound):

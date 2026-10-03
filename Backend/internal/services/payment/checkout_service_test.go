@@ -2,14 +2,29 @@ package payment
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"pay-langgan/internal/utils"
 	provider "pay-langgan/pkg/payment"
 )
 
 type stubSessionProvider struct {
 	token string
+}
+
+type stubBusinessGatewayResolver struct {
+	config *BusinessGatewayRuntime
+	err    error
+}
+
+func (r stubBusinessGatewayResolver) LoadForBusiness(context.Context, string) (*BusinessGatewayRuntime, error) {
+	return r.config, r.err
+}
+
+func (r stubBusinessGatewayResolver) LoadForWebhook(context.Context, string) (*BusinessGatewayRuntime, error) {
+	return r.config, r.err
 }
 
 func (p *stubSessionProvider) CreateCardSession(context.Context, provider.XenditSessionRequest) (*provider.XenditSessionResponse, error) {
@@ -87,6 +102,34 @@ func TestCheckoutBaseURLValidation(t *testing.T) {
 	}
 	if validBaseURL("http://localhost:5173", true) {
 		t.Fatal("Xendit return URL accepted HTTP")
+	}
+}
+
+func TestCheckoutUsesConfiguredBusinessXenditAndRejectsUnsupportedGateway(t *testing.T) {
+	service := &CheckoutService{provider: &stubSessionProvider{token: "platform-token"}}
+	service.SetBusinessGatewayResolver(stubBusinessGatewayResolver{err: utils.ErrNotFound})
+	if _, err := service.xenditForBusiness(context.Background(), "business-1"); !errors.Is(err, utils.ErrConflict) {
+		t.Fatalf("expected conflict for missing gateway, got %v", err)
+	}
+
+	service.SetBusinessGatewayResolver(stubBusinessGatewayResolver{config: &BusinessGatewayRuntime{
+		BusinessID: "business-1",
+		Config:     BusinessGatewayInput{Provider: "midtrans"},
+	}})
+	if _, err := service.xenditForBusiness(context.Background(), "business-1"); !errors.Is(err, utils.ErrConflict) {
+		t.Fatalf("expected unsupported Midtrans stage to return conflict, got %v", err)
+	}
+
+	service.SetBusinessGatewayResolver(stubBusinessGatewayResolver{config: &BusinessGatewayRuntime{
+		BusinessID: "business-1",
+		Config:     BusinessGatewayInput{Provider: "xendit", XenditSecretKey: "business-secret", XenditCallbackToken: "business-callback"},
+	}})
+	accountProvider, err := service.xenditForBusiness(context.Background(), "business-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accountProvider == service.provider || !accountProvider.(*provider.XenditProvider).VerifyCallbackToken("business-callback") {
+		t.Fatal("checkout must use the business's credentials, not the platform provider")
 	}
 }
 

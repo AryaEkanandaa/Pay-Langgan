@@ -19,8 +19,9 @@ type RecurringProvider interface {
 func (s *CheckoutService) EnableAutopay(enabled bool) { s.autopayEnabled = enabled }
 
 type chargeWork struct {
-	ID      int64
-	Request provider.RecurringChargeRequest
+	ID         int64
+	BusinessID string
+	Request    provider.RecurringChargeRequest
 }
 
 func (s *CheckoutService) claimAutopay(ctx context.Context) (*chargeWork, error) {
@@ -30,17 +31,19 @@ func (s *CheckoutService) claimAutopay(ctx context.Context) (*chargeWork, error)
 	}
 	defer tx.Rollback()
 	var row struct {
-		InvoiceID int       `db:"invoice_id"`
-		Amount    float64   `db:"amount"`
-		MethodID  int       `db:"payment_method_id"`
-		Token     string    `db:"token"`
-		MaxAmount int64     `db:"max_amount"`
-		ExpiresAt time.Time `db:"consent_expires_at"`
-		Cycle     string    `db:"billing_cycle"`
+		BusinessID string    `db:"business_id"`
+		InvoiceID  int       `db:"invoice_id"`
+		Amount     float64   `db:"amount"`
+		MethodID   int       `db:"payment_method_id"`
+		Token      string    `db:"token"`
+		MaxAmount  int64     `db:"max_amount"`
+		ExpiresAt  time.Time `db:"consent_expires_at"`
+		Cycle      string    `db:"billing_cycle"`
 	}
-	err = tx.GetContext(ctx, &row, `SELECT i.id AS invoice_id,i.amount,a.payment_method_id,pm.token,a.max_amount,a.consent_expires_at,s.billing_cycle
+	err = tx.GetContext(ctx, &row, `SELECT c.business_id,i.id AS invoice_id,i.amount,a.payment_method_id,pm.token,a.max_amount,a.consent_expires_at,s.billing_cycle
  FROM subscriptions s JOIN subscription_autopay a ON a.subscription_id=s.id
  JOIN customers c ON c.id=s.customer_id JOIN payment_methods pm ON pm.id=a.payment_method_id AND pm.customer_id=c.id AND pm.provider='xendit'
+	JOIN business_payment_gateways bg ON bg.business_id=c.business_id AND bg.provider='xendit'
  JOIN invoices i ON i.subscription_id=s.id
  WHERE s.status='active' AND a.enabled=TRUE AND a.consent_expires_at>(NOW() AT TIME ZONE 'UTC')
  AND s.billing_cycle IN ('monthly','yearly') AND i.status='pending' AND i.due_date<=(NOW() AT TIME ZONE 'UTC')
@@ -79,7 +82,7 @@ func (s *CheckoutService) claimAutopay(ctx context.Context) (*chargeWork, error)
 		return nil, err
 	}
 	amount := int64(row.Amount)
-	work := &chargeWork{ID: chargeID, Request: provider.RecurringChargeRequest{ReferenceID: ref, PaymentTokenID: row.Token, Amount: amount,
+	work := &chargeWork{ID: chargeID, BusinessID: row.BusinessID, Request: provider.RecurringChargeRequest{ReferenceID: ref, PaymentTokenID: row.Token, Amount: amount,
 		ReturnURL: s.returnBaseURL, ConsentExpiresAt: row.ExpiresAt, FrequencyDays: 28}}
 	if row.Cycle == "yearly" {
 		work.Request.FrequencyDays = 365
@@ -205,33 +208,45 @@ func safeFailureCode(code string) string {
 }
 
 func (s *CheckoutService) runAutopay(ctx context.Context, limit int, result *MaintenanceResult) error {
-	p, ok := s.provider.(RecurringProvider)
-	if !ok {
-		if s.autopayEnabled {
-			return fmt.Errorf("provider does not support recurring payments")
+	if !s.autopayEnabled && s.businessGateways == nil {
+		if _, ok := s.provider.(RecurringProvider); !ok {
+			return nil
 		}
-		return nil
 	}
 	for i := 0; i < limit; i++ {
 		var row struct {
-			ID        int64   `db:"id"`
-			RequestID *string `db:"provider_request_id"`
+			ID         int64   `db:"id"`
+			BusinessID string  `db:"business_id"`
+			RequestID  *string `db:"provider_request_id"`
 		}
 		err := s.db.GetContext(ctx, &row, `WITH candidate AS (SELECT id FROM autopay_charges WHERE status IN ('creating','pending','review_required')
  AND next_check_at<=(NOW() AT TIME ZONE 'UTC') AND updated_at<(NOW() AT TIME ZONE 'UTC')-INTERVAL '30 seconds'
  ORDER BY next_check_at,id LIMIT 1 FOR UPDATE SKIP LOCKED)
- UPDATE autopay_charges ac SET next_check_at=(NOW() AT TIME ZONE 'UTC')+INTERVAL '2 minutes'
- FROM candidate WHERE ac.id=candidate.id RETURNING ac.id,ac.provider_request_id`)
+	 UPDATE autopay_charges ac SET next_check_at=(NOW() AT TIME ZONE 'UTC')+INTERVAL '2 minutes'
+	 FROM candidate WHERE ac.id=candidate.id RETURNING ac.id,ac.provider_request_id`)
 		if err == sql.ErrNoRows {
 			break
 		}
 		if err != nil {
 			return err
 		}
+		if err := s.db.GetContext(ctx, &row.BusinessID, `SELECT c.business_id FROM autopay_charges ac JOIN invoices i ON i.id=ac.invoice_id
+ JOIN subscriptions sub ON sub.id=i.subscription_id JOIN customers c ON c.id=sub.customer_id WHERE ac.id=$1`, row.ID); err != nil {
+			return err
+		}
 		result.AutopayChecked++
 		if row.RequestID == nil {
 			result.ReviewRequired++
 			if err := s.failAutopay(ctx, row.ID, "charge_outcome_uncertain", false); err != nil {
+				return err
+			}
+			continue
+		}
+		p, err := s.recurringProviderForBusiness(ctx, row.BusinessID)
+		if err != nil {
+			result.Failures++
+			result.ReviewRequired++
+			if err := s.failAutopay(ctx, row.ID, "gateway_configuration_unavailable", false); err != nil {
 				return err
 			}
 			continue
@@ -268,6 +283,14 @@ func (s *CheckoutService) runAutopay(ctx context.Context, limit int, result *Mai
 			result.Failures++
 			continue
 		}
+		p, err := s.recurringProviderForBusiness(ctx, work.BusinessID)
+		if err != nil {
+			result.Failures++
+			if saveErr := s.failAutopay(ctx, work.ID, "gateway_configuration_unavailable", true); saveErr != nil {
+				return saveErr
+			}
+			continue
+		}
 		result.AutopayStarted++
 		response, chargeErr := p.CreateRecurringCharge(ctx, work.Request)
 		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -300,11 +323,38 @@ func (s *CheckoutService) runAutopay(ctx context.Context, limit int, result *Mai
 	return nil
 }
 
+func (s *CheckoutService) recurringProviderForBusiness(ctx context.Context, businessID string) (RecurringProvider, error) {
+	if s.businessGateways == nil {
+		p, ok := s.provider.(RecurringProvider)
+		if !ok {
+			return nil, fmt.Errorf("provider does not support recurring payments")
+		}
+		return p, nil
+	}
+	p, err := s.xenditForBusiness(ctx, businessID)
+	if err != nil {
+		return nil, err
+	}
+	provider, ok := p.(RecurringProvider)
+	if !ok {
+		return nil, fmt.Errorf("business gateway does not support recurring payments")
+	}
+	return provider, nil
+}
+
 // Operator recovery for a charge whose response was lost. Never resend a debit.
 func (s *CheckoutService) RecoverAutopay(ctx context.Context, id int64, requestID string) error {
-	p, ok := s.provider.(RecurringProvider)
-	if !ok || requestID == "" {
+	if requestID == "" {
 		return fmt.Errorf("provider payment request ID required")
+	}
+	var businessID string
+	if err := s.db.GetContext(ctx, &businessID, `SELECT c.business_id FROM autopay_charges ac JOIN invoices i ON i.id=ac.invoice_id
+ JOIN subscriptions sub ON sub.id=i.subscription_id JOIN customers c ON c.id=sub.customer_id WHERE ac.id=$1`, id); err != nil {
+		return err
+	}
+	p, err := s.recurringProviderForBusiness(ctx, businessID)
+	if err != nil {
+		return err
 	}
 	response, err := p.GetRecurringCharge(ctx, requestID)
 	if err != nil {

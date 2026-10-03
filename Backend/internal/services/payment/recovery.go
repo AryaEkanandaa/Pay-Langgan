@@ -143,7 +143,11 @@ func (s *CheckoutService) reconcileRecord(ctx context.Context, record *models.Ch
 	if record.ProviderSessionID != nil && *record.ProviderSessionID != sessionID {
 		return fmt.Errorf("provider session identity conflict")
 	}
-	session, err := s.provider.GetCardSession(ctx, sessionID, record.ReferenceID)
+	accountProvider, err := s.xenditForBusiness(ctx, record.BusinessID)
+	if err != nil {
+		return err
+	}
+	session, err := accountProvider.GetCardSession(ctx, sessionID, record.ReferenceID)
 	if err != nil {
 		return err
 	}

@@ -83,12 +83,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to configure Xendit: %v", err)
 	}
+	businessGatewayService := paymentsvc.NewBusinessGatewayService(db, cfg.PaymentCredentialEncryptionKey, cfg.APIPublicURL)
 	checkoutService, err := paymentsvc.NewCheckoutService(db, checkoutRepo, xenditProvider, cfg.AppPublicURL, cfg.XenditReturnBaseURL, cfg.CheckoutTTL)
 	if err != nil {
 		log.Fatalf("Failed to configure checkout: %v", err)
 	}
+	checkoutService.SetBusinessGatewayResolver(businessGatewayService)
 	merchantService := paymentsvc.NewMerchantIntegrationService(db, checkoutService, invoiceRepo)
-	businessGatewayService := paymentsvc.NewBusinessGatewayService(db, cfg.PaymentCredentialEncryptionKey, cfg.APIPublicURL)
 	platformService, err := platformsvc.NewService(db, xenditProvider, cfg.AppPublicURL, cfg.XenditReturnBaseURL)
 	if err != nil {
 		log.Fatalf("Failed to configure platform billing: %v", err)
