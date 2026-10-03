@@ -16,6 +16,9 @@ import {
   type IntegrationKey,
 } from '../../lib/api'
 
+// API credentials remain in the codebase but are temporarily hidden from the dashboard.
+const API_INTEGRATION_ENABLED = false
+
 function formatDate(value: string) {
   const date = new Date(value)
   return Number.isNaN(date.getTime())
@@ -130,7 +133,7 @@ export default function IntegrationKeysPage() {
     <div className="max-w-6xl">
       <DashboardPageHeader
         title="Integrasi Website"
-        description="Pilih skrip siap pakai atau integrasi API melalui server website Anda."
+        description="Pasang skrip checkout PayLanggan pada website Anda."
       />
 
       <div className="mb-6 overflow-hidden rounded-2xl border border-white/80 bg-white/75 shadow-sm">
@@ -142,10 +145,12 @@ export default function IntegrationKeysPage() {
               className={`border-b-[3px] pb-3 text-[13px] font-semibold transition-colors ${mode === 'dropin' ? 'border-brand text-ink' : 'border-transparent text-muted hover:text-ink'}`}>
               Via skrip drop-in
             </button>
-            <button type="button" role="tab" id="api-tab" aria-controls="integration-panel" aria-selected={mode === 'api'} onClick={() => setMode('api')}
-              className={`border-b-[3px] pb-3 text-[13px] font-semibold transition-colors ${mode === 'api' ? 'border-brand text-ink' : 'border-transparent text-muted hover:text-ink'}`}>
-              Via API
-            </button>
+            {API_INTEGRATION_ENABLED && (
+              <button type="button" role="tab" id="api-tab" aria-controls="integration-panel" aria-selected={mode === 'api'} onClick={() => setMode('api')}
+                className={`border-b-[3px] pb-3 text-[13px] font-semibold transition-colors ${mode === 'api' ? 'border-brand text-ink' : 'border-transparent text-muted hover:text-ink'}`}>
+                Via API
+              </button>
+            )}
           </div>
         </div>
         <div id="integration-panel" role="tabpanel" aria-labelledby={mode === 'dropin' ? 'dropin-tab' : 'api-tab'} className="p-5 sm:p-7">

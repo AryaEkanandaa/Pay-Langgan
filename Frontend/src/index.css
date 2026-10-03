@@ -156,9 +156,15 @@
     height: 100vh;
     overflow-x: hidden;
     overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     scroll-snap-type: y mandatory;
     scroll-behavior: smooth;
     overscroll-behavior-y: contain;
+  }
+
+  .landing-scroll::-webkit-scrollbar {
+    display: none;
   }
 
   .landing-section {
