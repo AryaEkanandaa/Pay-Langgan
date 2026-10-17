@@ -1,5 +1,6 @@
 import type { DashboardSummary, PlatformDashboardSummary } from './api'
 import { formatCurrency } from './format'
+import { periodLabel, type DatePeriod } from './dashboardPeriod'
 
 type PdfLib = typeof import('pdf-lib')
 type PdfDocument = import('pdf-lib').PDFDocument
@@ -143,7 +144,44 @@ function monthLabel(index: number, total: number) {
   return month.toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' })
 }
 
-export async function exportBusinessReportPdf(summary: DashboardSummary, businessID: string, salesOnly: boolean) {
+export async function exportBusinessReportPdf(summary: DashboardSummary, businessID: string, salesOnly: boolean, period?: DatePeriod & { timezone: string }) {
+  if (period) {
+    const range = summary.range_stats
+    if (!range) throw new Error('Statistik rentang belum tersedia.')
+    const { pdf, writer } = await createWriter()
+    const total = (key: 'revenue' | 'new_subscriptions' | 'cancelled_subscriptions' | 'payments_succeeded' | 'payments_failed' | 'autopay_succeeded' | 'autopay_failed') => range.series.reduce((sum, point) => sum + point[key], 0)
+    pdf.setTitle('Ringkasan PayLanggan')
+    const createdAt = new Date().toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short', timeZone: range.timezone })
+    writer.title('Ringkasan PayLanggan', `ID bisnis: ${businessID} | Dibuat: ${createdAt} (${range.timezone})`)
+    writer.text(`Periode: ${periodLabel(period).replace(' – ', ' - ')}. Zona waktu: ${range.timezone}. Tanggal akhir termasuk dalam rentang.`, 9, true)
+    writer.section('Kondisi saat ini - per tanggal ekspor')
+    writer.row('Pelanggan aktif', String(summary.active_customers))
+    writer.row('Langganan berjalan', String(summary.active_subscriptions))
+    if (!salesOnly) {
+      writer.row('MRR', formatCurrency(summary.mrr))
+      writer.row('Invoice jatuh tempo', String(summary.due_invoices))
+      writer.row('Tagihan belum dibayar', formatCurrency(summary.outstanding_amount))
+      writer.row('Di antaranya lewat jatuh tempo', formatCurrency(summary.overdue_amount))
+    }
+    writer.section('Statistik pada periode terpilih')
+    writer.row('Langganan baru', String(total('new_subscriptions')))
+    writer.row('Langganan berhenti', String(total('cancelled_subscriptions')))
+    if (!salesOnly) {
+      writer.row('Pendapatan diterima', formatCurrency(total('revenue')))
+      writer.row('Pembayaran berhasil', String(total('payments_succeeded')))
+      writer.row('Pembayaran gagal', String(total('payments_failed')))
+      writer.row('Debit otomatis berhasil', String(total('autopay_succeeded')))
+      writer.row('Debit otomatis gagal', String(total('autopay_failed')))
+      writer.section('Pembayaran menurut paket')
+      if (!range.revenue_by_plan.length) writer.text('Belum ada data pada rentang ini.')
+      range.revenue_by_plan.forEach(point => writer.row(point.name, formatCurrency(point.amount)))
+      writer.section('Pendapatan per tahun - tidak terpengaruh filter')
+      summary.yearly_breakdown.forEach(point => writer.row(point.year, formatCurrency(point.income)))
+      writer.text('Tahun kalender UTC. Pendapatan berasal dari pembayaran sukses, belum dikurangi refund atau biaya gateway.', 8, true)
+    }
+    await download(pdf, `ringkasan-paylanggan_${period.from}_${period.to}.pdf`)
+    return
+  }
   const { pdf, writer } = await createWriter()
   pdf.setTitle('Laporan statistik bisnis PayLanggan')
   writer.title('Laporan Statistik Bisnis', `ID bisnis: ${businessID} | Dibuat: ${reportDate()}`)

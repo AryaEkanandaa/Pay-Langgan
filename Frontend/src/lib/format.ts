@@ -14,6 +14,7 @@ export const billingCycleLabel: Record<string, string> = {
 }
 
 export const subscriptionStatusLabel: Record<string, string> = {
+  pending: 'Menunggu pembayaran',
   trial: 'Trial',
   active: 'Aktif',
   paused: 'Dijeda',
