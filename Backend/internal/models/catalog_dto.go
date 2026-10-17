@@ -45,16 +45,18 @@ type UpdatePlanRequest struct {
 }
 
 type CreateAddOnRequest struct {
-	ProductID    int     `json:"product_id"`
-	Name         string  `json:"name"`
-	Price        float64 `json:"price"`
-	BillingCycle string  `json:"billing_cycle"`
-	Meta         JSONMap `json:"meta"`
+	VisibleInCheckout *bool   `json:"visible_in_checkout"`
+	ProductID         int     `json:"product_id"`
+	Name              string  `json:"name"`
+	Price             float64 `json:"price"`
+	BillingCycle      string  `json:"billing_cycle"`
+	Meta              JSONMap `json:"meta"`
 }
 
 type UpdateAddOnRequest struct {
-	Name         string  `json:"name"`
-	Price        float64 `json:"price"`
-	BillingCycle string  `json:"billing_cycle"`
-	Meta         JSONMap `json:"meta"`
+	VisibleInCheckout *bool   `json:"visible_in_checkout"`
+	Name              string  `json:"name"`
+	Price             float64 `json:"price"`
+	BillingCycle      string  `json:"billing_cycle"`
+	Meta              JSONMap `json:"meta"`
 }

@@ -68,13 +68,17 @@ func (s *AddOnService) Create(businessID string, req models.CreateAddOnRequest) 
 	}
 
 	addOn := &models.AddOn{
-		ProductID:    req.ProductID,
-		Name:         req.Name,
-		Price:        req.Price,
-		BillingCycle: req.BillingCycle,
-		Meta:         req.Meta,
+		VisibleInCheckout: true,
+		ProductID:         req.ProductID,
+		Name:              req.Name,
+		Price:             req.Price,
+		BillingCycle:      req.BillingCycle,
+		Meta:              req.Meta,
 	}
 
+	if req.VisibleInCheckout != nil {
+		addOn.VisibleInCheckout = *req.VisibleInCheckout
+	}
 	err = s.addOnRepo.Create(addOn)
 	if err != nil {
 		return nil, err
@@ -111,6 +115,9 @@ func (s *AddOnService) Update(id int, businessID string, req models.UpdateAddOnR
 		addOn.Meta = req.Meta
 	}
 
+	if req.VisibleInCheckout != nil {
+		addOn.VisibleInCheckout = *req.VisibleInCheckout
+	}
 	err = s.addOnRepo.Update(addOn)
 	if err != nil {
 		return nil, err

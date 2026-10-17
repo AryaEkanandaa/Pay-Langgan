@@ -37,7 +37,7 @@ func (r *AddOnRepository) FindAllByBusinessID(businessID string, page, limit int
 	}
 
 	offset := (page - 1) * limit
-	dataQuery := `SELECT a.id, a.product_id, a.name, a.price, a.billing_cycle, a.meta, a.created_at
+	dataQuery := `SELECT a.id, a.product_id, a.name, a.price, a.billing_cycle, a.visible_in_checkout, a.meta, a.created_at
 		FROM add_ons a
 		JOIN products p ON p.id = a.product_id
 		JOIN services s ON s.id = p.service_id
@@ -64,7 +64,7 @@ func (r *AddOnRepository) FindAllByBusinessID(businessID string, page, limit int
 }
 
 func (r *AddOnRepository) FindByIDAndBusinessID(id int, businessID string) (*models.AddOn, error) {
-	query := `SELECT a.id, a.product_id, a.name, a.price, a.billing_cycle, a.meta, a.created_at
+	query := `SELECT a.id, a.product_id, a.name, a.price, a.billing_cycle, a.visible_in_checkout, a.meta, a.created_at
 		FROM add_ons a
 		JOIN products p ON p.id = a.product_id
 		JOIN services s ON s.id = p.service_id
@@ -81,7 +81,7 @@ func (r *AddOnRepository) FindByIDAndBusinessID(id int, businessID string) (*mod
 }
 
 func (r *AddOnRepository) FindByID(id int) (*models.AddOn, error) {
-	query := `SELECT id, product_id, name, price, billing_cycle, meta, created_at
+	query := `SELECT id, product_id, name, price, billing_cycle, visible_in_checkout, meta, created_at
 		FROM add_ons WHERE id = $1`
 	var addOn models.AddOn
 	err := r.db.Get(&addOn, query, id)
@@ -98,10 +98,10 @@ func (r *AddOnRepository) Create(addOn *models.AddOn) error {
 	if addOn.Meta == nil {
 		addOn.Meta = make(models.JSONMap)
 	}
-	query := `INSERT INTO add_ons (product_id, name, price, billing_cycle, meta, created_at)
-		VALUES ($1, $2, $3, $4, $5, NOW())
+	query := `INSERT INTO add_ons (product_id, name, price, billing_cycle, visible_in_checkout, meta, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
 		RETURNING id, created_at`
-	err := r.db.QueryRow(query, addOn.ProductID, addOn.Name, addOn.Price, addOn.BillingCycle, addOn.Meta).
+	err := r.db.QueryRow(query, addOn.ProductID, addOn.Name, addOn.Price, addOn.BillingCycle, addOn.VisibleInCheckout, addOn.Meta).
 		Scan(&addOn.ID, &addOn.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create add-on: %w", err)
@@ -113,9 +113,9 @@ func (r *AddOnRepository) Update(addOn *models.AddOn) error {
 	if addOn.Meta == nil {
 		addOn.Meta = make(models.JSONMap)
 	}
-	query := `UPDATE add_ons SET name = $1, price = $2, billing_cycle = $3, meta = $4
-		WHERE id = $5`
-	_, err := r.db.Exec(query, addOn.Name, addOn.Price, addOn.BillingCycle, addOn.Meta, addOn.ID)
+	query := `UPDATE add_ons SET name = $1, price = $2, billing_cycle = $3, meta = $4, visible_in_checkout = $5
+		WHERE id = $6`
+	_, err := r.db.Exec(query, addOn.Name, addOn.Price, addOn.BillingCycle, addOn.Meta, addOn.VisibleInCheckout, addOn.ID)
 	if err != nil {
 		return fmt.Errorf("update add-on: %w", err)
 	}
