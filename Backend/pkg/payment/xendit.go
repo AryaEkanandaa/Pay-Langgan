@@ -30,6 +30,7 @@ type XenditProvider struct {
 }
 
 type XenditSessionRequest struct {
+	SessionType         string // Empty means PAY; SAVE enrolls a card without charging.
 	ReferenceID         string
 	Amount              int64
 	CustomerReferenceID string
@@ -39,6 +40,8 @@ type XenditSessionRequest struct {
 	Description         string
 	ComponentsOrigins   []string
 	ReturnURL           string
+	RecurringFrequency  int
+	RecurringExpiry     string
 }
 
 type ComponentsConfiguration struct {
@@ -47,6 +50,7 @@ type ComponentsConfiguration struct {
 }
 
 type XenditSessionResponse struct {
+	SessionType      string    `json:"session_type"`
 	Amount           int64     `json:"amount"`
 	Currency         string    `json:"currency"`
 	PaymentSessionID string    `json:"payment_session_id"`
@@ -75,7 +79,8 @@ func SessionCreationRejected(err error) bool {
 	}
 	var api *XenditAPIError
 	if errors.As(err, &api) {
-		return api.StatusCode == 400 || api.StatusCode == 401 || api.StatusCode == 403 || api.StatusCode == 404 || api.StatusCode == 422
+		return api.StatusCode == 400 || api.StatusCode == 401 || api.StatusCode == 403 || api.StatusCode == 404 || api.StatusCode == 422 ||
+			(api.StatusCode == 409 && api.Code == "DUPLICATE_ERROR" && strings.Contains(strings.ToLower(api.Message), "customer"))
 	}
 	var midtrans *MidtransAPIError
 	return errors.As(err, &midtrans) && (midtrans.StatusCode == 400 || midtrans.StatusCode == 401 || midtrans.StatusCode == 403 || midtrans.StatusCode == 404 || midtrans.StatusCode == 422)
@@ -132,8 +137,13 @@ func (p *XenditProvider) CreateCardSession(ctx context.Context, request XenditSe
 			return nil, fmt.Errorf("generate mock Xendit session ID: %w", err)
 		}
 		sessionID := "ps-" + id
+		sessionType := request.SessionType
+		if sessionType == "" {
+			sessionType = "PAY"
+		}
 		session := XenditSessionResponse{
-			Amount: request.Amount, Currency: "IDR",
+			SessionType: sessionType,
+			Amount:      request.Amount, Currency: "IDR",
 			PaymentSessionID: sessionID,
 			ReferenceID:      request.ReferenceID,
 			Status:           "ACTIVE",
@@ -156,12 +166,13 @@ func (p *XenditProvider) CreateCardSession(ctx context.Context, request XenditSe
 		Amount                  int64                   `json:"amount"`
 		Currency                string                  `json:"currency"`
 		Country                 string                  `json:"country"`
-		CaptureMethod           string                  `json:"capture_method"`
+		CaptureMethod           string                  `json:"capture_method,omitempty"`
 		AllowedPaymentChannels  []string                `json:"allowed_payment_channels"`
-		AllowSavePaymentMethod  string                  `json:"allow_save_payment_method"`
+		AllowSavePaymentMethod  string                  `json:"allow_save_payment_method,omitempty"`
 		Locale                  string                  `json:"locale"`
 		Description             string                  `json:"description"`
 		ComponentsConfiguration ComponentsConfiguration `json:"components_configuration"`
+		ChannelProperties       map[string]any          `json:"channel_properties,omitempty"`
 		Customer                struct {
 			ReferenceID      string `json:"reference_id"`
 			Type             string `json:"type"`
@@ -185,6 +196,17 @@ func (p *XenditProvider) CreateCardSession(ctx context.Context, request XenditSe
 		Description:             request.Description,
 		ComponentsConfiguration: ComponentsConfiguration{Origins: request.ComponentsOrigins, ReturnURL: request.ReturnURL},
 	}
+	if request.SessionType == "SAVE" {
+		payload.SessionType = "SAVE"
+		payload.CaptureMethod = ""
+		payload.AllowSavePaymentMethod = ""
+		if request.RecurringFrequency > 0 && request.RecurringExpiry != "" {
+			payload.ChannelProperties = map[string]any{"cards": map[string]any{
+				"card_on_file_type":       "RECURRING",
+				"recurring_configuration": map[string]any{"recurring_frequency": request.RecurringFrequency, "recurring_expiry": request.RecurringExpiry},
+			}}
+		}
+	}
 	payload.Customer.ReferenceID = request.CustomerReferenceID
 	payload.Customer.Type = "INDIVIDUAL"
 	payload.Customer.Email = request.CustomerEmail
@@ -196,6 +218,30 @@ func (p *XenditProvider) CreateCardSession(ctx context.Context, request XenditSe
 		return nil, fmt.Errorf("encode Xendit session: %w", err)
 	}
 	session, err := p.requestSession(ctx, http.MethodPost, "/sessions", string(body))
+	var duplicate *XenditAPIError
+	if errors.As(err, &duplicate) && duplicate.StatusCode == http.StatusConflict && duplicate.Code == "DUPLICATE_ERROR" && strings.Contains(strings.ToLower(duplicate.Message), "customer") {
+		// The customer object creates a customer; repeat purchases must use
+		// customer_id. Look up only within the account authenticated by this key.
+		var customers struct {
+			Data []struct {
+				ID          string `json:"id"`
+				ReferenceID string `json:"reference_id"`
+			} `json:"data"`
+		}
+		lookupErr := p.requestJSON(ctx, http.MethodGet, "/customers?reference_id="+url.QueryEscape(request.CustomerReferenceID), "", &customers)
+		if lookupErr == nil && len(customers.Data) == 1 && customers.Data[0].ReferenceID == request.CustomerReferenceID && strings.HasPrefix(customers.Data[0].ID, "cust-") {
+			var reuse map[string]any
+			if json.Unmarshal(body, &reuse) == nil {
+				delete(reuse, "customer")
+				reuse["customer_id"] = customers.Data[0].ID
+				retryBody, encodeErr := json.Marshal(reuse)
+				if encodeErr != nil {
+					return nil, encodeErr
+				}
+				session, err = p.requestSession(ctx, http.MethodPost, "/sessions", string(retryBody))
+			}
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +283,36 @@ func (p *XenditProvider) GetCardSession(ctx context.Context, sessionID, referenc
 	return session, nil
 }
 
+// CancelCardSession invalidates an ACTIVE PAY or SAVE session. The caller must
+// still decide whether its own invoice or trial enrollment can be cancelled.
+func (p *XenditProvider) CancelCardSession(ctx context.Context, sessionID, referenceID string) (*XenditSessionResponse, error) {
+	if sessionID == "" || strings.ContainsAny(sessionID, "/?#") || referenceID == "" {
+		return nil, fmt.Errorf("invalid Xendit session identity")
+	}
+	if p.mock {
+		p.mockMu.Lock()
+		defer p.mockMu.Unlock()
+		session, ok := p.mockSessions[sessionID]
+		if !ok || session.ReferenceID != referenceID {
+			return nil, &XenditAPIError{StatusCode: 404, Code: "NOT_FOUND", Message: "mock session not found"}
+		}
+		if session.Status != "ACTIVE" {
+			return nil, &XenditAPIError{StatusCode: 422, Code: "INVALID_SESSION_STATUS", Message: "session is not active"}
+		}
+		session.Status = "CANCELED"
+		p.mockSessions[sessionID] = session
+		return &session, nil
+	}
+	session, err := p.requestSession(ctx, http.MethodPost, "/sessions/"+url.PathEscape(sessionID)+"/cancel", "")
+	if err != nil {
+		return nil, err
+	}
+	if session.PaymentSessionID != sessionID || session.ReferenceID != referenceID || session.Status != "CANCELED" {
+		return nil, fmt.Errorf("Xendit returned a mismatched cancellation")
+	}
+	return session, nil
+}
+
 func activeComponentsSession(session *XenditSessionResponse) bool {
 	return session != nil && session.PaymentSessionID != "" && session.Mode == "COMPONENTS" &&
 		session.Status == "ACTIVE" && strings.TrimSpace(session.ComponentsSDKKey) != "" && session.ExpiresAt.After(time.Now())
@@ -259,6 +335,9 @@ func (p *XenditProvider) requestJSON(ctx context.Context, method, path, body str
 	httpRequest.Header.Set("Accept", "application/json")
 	if strings.HasPrefix(path, "/v3/") {
 		httpRequest.Header.Set("api-version", "2024-11-11")
+	}
+	if strings.HasPrefix(path, "/customers?") {
+		httpRequest.Header.Set("api-version", "2020-10-31")
 	}
 	httpRequest.SetBasicAuth(p.secretKey, "")
 
@@ -305,7 +384,21 @@ func validateXenditSessionRequest(request XenditSessionRequest) error {
 	if strings.TrimSpace(request.ReferenceID) == "" || len(request.ReferenceID) > 255 {
 		return fmt.Errorf("Xendit reference ID is required and must be at most 255 characters")
 	}
-	if request.Amount < 5000 || request.Amount > 200000000 {
+	if request.SessionType != "" && request.SessionType != "PAY" && request.SessionType != "SAVE" {
+		return fmt.Errorf("unsupported session type")
+	}
+	if request.SessionType == "SAVE" && request.Amount != 0 {
+		return fmt.Errorf("card registration must not charge an amount")
+	}
+	if request.SessionType == "SAVE" && ((request.RecurringFrequency == 0) != (request.RecurringExpiry == "") || request.RecurringFrequency < 0) {
+		return fmt.Errorf("invalid recurring configuration for SAVE session")
+	}
+	if request.RecurringExpiry != "" {
+		if _, err := time.Parse("2006-01-02", request.RecurringExpiry); err != nil {
+			return fmt.Errorf("recurring expiry must use YYYY-MM-DD")
+		}
+	}
+	if request.SessionType != "SAVE" && (request.Amount < 5000 || request.Amount > 200000000) {
 		return fmt.Errorf("card payment amount must be between IDR 5,000 and IDR 200,000,000")
 	}
 	if strings.TrimSpace(request.CustomerReferenceID) == "" || strings.TrimSpace(request.CustomerName) == "" {
