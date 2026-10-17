@@ -20,6 +20,8 @@ type CheckoutSession struct {
 }
 
 type CheckoutRecord struct {
+	CheckoutMode      string    `db:"checkout_mode"`
+	AuthenticationURL *string   `db:"authentication_url"`
 	ID                int64     `db:"checkout_id"`
 	BusinessID        string    `db:"business_id"`
 	Provider          string    `db:"provider"`
@@ -48,19 +50,33 @@ type CheckoutLinkResponse struct {
 }
 
 type PublicCheckoutResponse struct {
-	InvoiceNumber  string    `json:"invoice_number"`
-	Amount         float64   `json:"amount"`
-	InvoiceStatus  string    `json:"invoice_status"`
-	CheckoutStatus string    `json:"checkout_status"`
-	CustomerName   string    `json:"customer_name"`
-	CustomerEmail  *string   `json:"customer_email,omitempty"`
-	CustomerMobile *string   `json:"customer_mobile,omitempty"`
-	BusinessName   string    `json:"business_name"`
-	PlanName       string    `json:"plan_name"`
-	ExpiresAt      time.Time `json:"expires_at"`
+	PaymentProvider  string             `json:"payment_provider,omitempty"`
+	BillingCycle     string             `json:"billing_cycle,omitempty"`
+	TrialDays        int                `json:"trial_days,omitempty"`
+	TrialEndsAt      *time.Time         `json:"trial_ends_at,omitempty"`
+	CardRegistration bool               `json:"card_registration,omitempty"`
+	Items            []CheckoutLineItem `json:"items"`
+	InvoiceNumber    string             `json:"invoice_number"`
+	Amount           float64            `json:"amount"`
+	InvoiceStatus    string             `json:"invoice_status"`
+	CheckoutStatus   string             `json:"checkout_status"`
+	CustomerName     string             `json:"customer_name"`
+	CustomerEmail    *string            `json:"customer_email,omitempty"`
+	CustomerMobile   *string            `json:"customer_mobile,omitempty"`
+	BusinessName     string             `json:"business_name"`
+	PlanName         string             `json:"plan_name"`
+	ExpiresAt        time.Time          `json:"expires_at"`
+}
+
+type CheckoutLineItem struct {
+	Type        string  `db:"item_type" json:"type"`
+	Description string  `db:"description" json:"description"`
+	Quantity    int     `db:"quantity" json:"quantity"`
+	Subtotal    float64 `db:"subtotal" json:"subtotal"`
 }
 
 type StartCheckoutRequest struct {
+	CardConsent  bool   `json:"card_consent,omitempty"`
 	Name         string `json:"name"`
 	Email        string `json:"email"`
 	Mobile       string `json:"mobile"`
@@ -68,13 +84,30 @@ type StartCheckoutRequest struct {
 }
 
 type StartCheckoutResponse struct {
-	Provider         string    `json:"provider"`
-	PaymentSessionID string    `json:"payment_session_id"`
-	Mode             string    `json:"mode"`
-	ComponentsSDKKey string    `json:"components_sdk_key"`
-	SnapToken        string    `json:"snap_token,omitempty"`
-	SnapClientKey    string    `json:"snap_client_key,omitempty"`
-	SnapScriptURL    string    `json:"snap_script_url,omitempty"`
-	ExpiresAt        time.Time `json:"expires_at"`
-	Status           string    `json:"status"`
+	CardRegistration  bool      `json:"card_registration,omitempty"`
+	ClientKey         string    `json:"client_key,omitempty"`
+	Environment       string    `json:"environment,omitempty"`
+	AuthenticationURL string    `json:"authentication_url,omitempty"`
+	Provider          string    `json:"provider"`
+	PaymentSessionID  string    `json:"payment_session_id"`
+	Mode              string    `json:"mode"`
+	ComponentsSDKKey  string    `json:"components_sdk_key"`
+	SnapToken         string    `json:"snap_token,omitempty"`
+	SnapClientKey     string    `json:"snap_client_key,omitempty"`
+	SnapScriptURL     string    `json:"snap_script_url,omitempty"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	Status            string    `json:"status"`
+}
+
+// Raw card details must never be sent to this endpoint.
+type MidtransCardCheckoutRequest struct {
+	TokenID string `json:"token_id"`
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Mobile  string `json:"mobile"`
+}
+
+type MidtransCardCheckoutResponse struct {
+	AuthenticationURL string `json:"authentication_url,omitempty"`
+	Status            string `json:"status"`
 }

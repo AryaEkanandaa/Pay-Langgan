@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -175,6 +176,25 @@ func (h *MerchantIntegrationHandler) CreateEmbedOrder(c echo.Context) error {
 		return merchantError(c, err)
 	}
 	return utils.SuccessCreated(c, "Order created", order)
+}
+
+func (h *MerchantIntegrationHandler) PreviewEmbedPlan(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	var options []paymentservice.CheckoutAddOn
+	raw := c.QueryParam("add_ons")
+	if len(raw) > 4096 {
+		return utils.BadRequest(c, "Pilihan add-on tidak valid.")
+	}
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &options); err != nil {
+			return utils.BadRequest(c, "Pilihan add-on tidak valid.")
+		}
+	}
+	preview, err := h.service.QuoteEmbedPlan(c.Request().Context(), c.Param("site"), c.Param("plan"), options, c.QueryParam("coupon_code"))
+	if err != nil {
+		return merchantError(c, err)
+	}
+	return utils.Success(c, "Package preview", preview)
 }
 
 func merchantError(c echo.Context, err error) error {

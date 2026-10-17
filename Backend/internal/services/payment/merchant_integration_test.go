@@ -79,12 +79,15 @@ func TestMerchantOrderIsScopedAndIdempotent(t *testing.T) {
 		t.Fatalf("paid retry: %+v %v", retryPaid, err)
 	}
 	req.ExternalOrderID = "order-002"
-	req.Customer.Email = "BUYER@example.com"
+	if _, err := db.Exec(`UPDATE customers SET email=' buyer@example.com ' WHERE business_id='test' AND email='buyer@example.com'`); err != nil {
+		t.Fatal(err)
+	}
+	req.Customer.Email = " BUYER@example.com "
 	anotherOrder, err := svc.CreateOrder(ctx, "test", req)
 	if err != nil || anotherOrder.InvoiceID == first.InvoiceID {
 		t.Fatalf("second purchase: %+v %v", anotherOrder, err)
 	}
-	if err := db.Get(&count, `SELECT count(*) FROM customers WHERE business_id='test' AND lower(email)='buyer@example.com'`); err != nil || count != 1 {
+	if err := db.Get(&count, `SELECT count(*) FROM customers WHERE business_id='test' AND lower(btrim(email))='buyer@example.com'`); err != nil || count != 1 {
 		t.Fatalf("customer reuse count=%d err=%v", count, err)
 	}
 
@@ -147,6 +150,17 @@ func TestMerchantEmbedSiteAcceptsNewPlansAndRestrictsOriginAndRevocation(t *test
 	if err := db.Get(&firstPublicID, `SELECT public_id FROM plans WHERE id=1`); err != nil || !strings.HasPrefix(firstPublicID, "pl_plan_") {
 		t.Fatalf("first plan public ID: %q %v", firstPublicID, err)
 	}
+	preview, err := svc.PreviewEmbedPlan(ctx, site.PublicID, firstPublicID)
+	if err != nil || preview.Amount <= 0 || preview.PlanName == "" {
+		t.Fatalf("preview: %+v %v", preview, err)
+	}
+	var previewOrders int
+	if err := db.Get(&previewOrders, `SELECT count(*) FROM merchant_orders`); err != nil || previewOrders != 0 {
+		t.Fatalf("preview must not create orders: %d %v", previewOrders, err)
+	}
+	if _, err := svc.PreviewEmbedPlan(ctx, site.PublicID, "pl_plan_ffffffffffffffffffffffff"); !errors.Is(err, utils.ErrNotFound) {
+		t.Fatalf("preview missing plan: %v", err)
+	}
 	request := paymentservice.EmbedOrderRequest{PlanPublicID: firstPublicID}
 	request.Customer.Name = "Dira Pratama"
 	request.Customer.Email = "dira@merchant.example"
@@ -186,5 +200,8 @@ func TestMerchantEmbedSiteAcceptsNewPlansAndRestrictsOriginAndRevocation(t *test
 	}
 	if _, err := svc.CreateEmbedOrder(ctx, site.PublicID, "https://any-origin.example", request); !errors.Is(err, utils.ErrNotFound) {
 		t.Fatalf("revoked website: %v", err)
+	}
+	if _, err := svc.PreviewEmbedPlan(ctx, site.PublicID, firstPublicID); !errors.Is(err, utils.ErrNotFound) {
+		t.Fatalf("revoked preview: %v", err)
 	}
 }

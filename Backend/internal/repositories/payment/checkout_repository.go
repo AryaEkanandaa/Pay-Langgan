@@ -21,7 +21,7 @@ func NewCheckoutRepository(db *database.DB) *CheckoutRepository {
 
 const checkoutRecordColumns = `SELECT cs.id AS checkout_id, cs.invoice_id, cs.payment_id, cs.provider,
  cs.reference_id, cs.provider_session_id, cs.payment_link_url, cs.status AS checkout_status,
- cs.expires_at,
+ cs.expires_at, cs.checkout_mode, cs.authentication_url,
  i.invoice_number, i.amount AS invoice_amount, i.status AS invoice_status,
  c.id AS customer_id, c.name AS customer_name, c.email AS default_email,
  c.contact AS default_mobile, b.id AS business_id, b.name AS business_name, pl.name AS plan_name
@@ -57,17 +57,21 @@ func (r *CheckoutRepository) Create(tx *sqlx.Tx, checkout *models.CheckoutSessio
 	if checkout.Provider != "xendit" && checkout.Provider != "midtrans" {
 		return fmt.Errorf("unsupported checkout provider")
 	}
+	mode := "SNAP"
+	if checkout.Provider == "midtrans" {
+		mode = "CORE"
+	}
 	return tx.QueryRow(`INSERT INTO checkout_sessions
- (invoice_id, public_token_hash, reference_id, provider, status, expires_at)
-	 VALUES ($1, $2, $3, $4, 'created', $5)
+ (invoice_id, public_token_hash, reference_id, provider, status, expires_at, checkout_mode)
+	 VALUES ($1, $2, $3, $4, 'created', $5, $6)
 	 RETURNING id, created_at, updated_at`, checkout.InvoiceID, checkout.PublicTokenHash,
-		checkout.ReferenceID, checkout.Provider, checkout.ExpiresAt).
+		checkout.ReferenceID, checkout.Provider, checkout.ExpiresAt, mode).
 		Scan(&checkout.ID, &checkout.CreatedAt, &checkout.UpdatedAt)
 }
 
 func (r *CheckoutRepository) FindByTokenHash(ctx context.Context, tokenHash string) (*models.CheckoutRecord, error) {
 	var record models.CheckoutRecord
-	err := r.db.GetContext(ctx, &record, checkoutRecordColumns+` WHERE cs.public_token_hash = $1`, tokenHash)
+	err := r.db.GetContext(ctx, &record, checkoutRecordColumns+` WHERE cs.public_token_hash = $1 OR EXISTS(SELECT 1 FROM portal_checkout_access pa WHERE pa.checkout_id=cs.id AND pa.token_hash=$1 AND pa.expires_at>NOW())`, tokenHash)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
