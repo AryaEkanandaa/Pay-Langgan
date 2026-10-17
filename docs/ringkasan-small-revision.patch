@@ -1,0 +1,94 @@
+--- a/Frontend/src/pages/dashboard/DashboardHome.tsx
++++ b/Frontend/src/pages/dashboard/DashboardHome.tsx
+@@ -1,5 +1,5 @@
+ import { useEffect, useMemo, useRef, useState } from 'react'
+-import { Download } from 'lucide-react'
++import { CalendarDays, Download } from 'lucide-react'
+ import { Link, useSearchParams } from 'react-router-dom'
+ import DashboardPageHeader from '../../components/dashboard/DashboardPageHeader'
+ import InfoPopover from '../../components/dashboard/InfoPopover'
+@@ -21,7 +21,21 @@
+   const [baseError, setBaseError] = useState<string | null>(null), [rangeError, setRangeError] = useState<string | null>(null)
+   const [retryBase, setRetryBase] = useState(0), [retryRange, setRetryRange] = useState(0), [exportOpen, setExportOpen] = useState(false)
+   const tabs = useRef<Array<HTMLButtonElement | null>>([])
+-  const zone = timezone ?? 'Asia/Makassar', today = businessToday(zone), period = useMemo(() => periodFor(range, today), [range, today])
++  const [clock, setClock] = useState(() => new Date())
++  const zone = timezone ?? 'Asia/Makassar', today = businessToday(zone, clock), period = useMemo(() => periodFor(range, today), [range, today])
++  const todayLabel = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: zone }).format(clock)
++  useEffect(() => {
++    const refreshDate = () => setClock(new Date())
++    const onVisible = () => { if (document.visibilityState === 'visible') refreshDate() }
++    const interval = window.setInterval(refreshDate, 30_000)
++    window.addEventListener('focus', refreshDate)
++    document.addEventListener('visibilitychange', onVisible)
++    return () => {
++      window.clearInterval(interval)
++      window.removeEventListener('focus', refreshDate)
++      document.removeEventListener('visibilitychange', onVisible)
++    }
++  }, [])
+   const isSales = auth?.user.role === 'sales', isFinance = auth?.user.role === 'finance'
+   useEffect(() => {
+     if (rawRange && !dashboardRanges.some(item => item.id === rawRange)) {
+@@ -76,12 +90,16 @@
+   return <div className="summary-page w-full min-w-0">
+     <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+       <DashboardPageHeader title={`Halo, ${auth?.user.name.split(' ')[0] ?? 'Admin'}`} description={isSales ? 'Pantau pelanggan dan langganan yang perlu ditindaklanjuti.' : 'Pantau langganan, tagihan, dan pembayaran bisnis Anda.'} />
+-      <div className="flex flex-wrap gap-3"><Link to={isSales ? '/dashboard/pelanggan' : isFinance ? '/dashboard/invoices' : '/dashboard/katalog'} className="glass inline-flex min-h-11 items-center rounded-full px-5 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-brand">{isSales ? 'Kelola Pelanggan' : isFinance ? 'Tinjau Invoice' : 'Kelola Katalog'}</Link><button type="button" onClick={() => setExportOpen(true)} disabled={!snapshot || !timezone} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"><Download size={16} aria-hidden="true" />Ekspor</button></div>
++      <div className="summary-header-actions flex flex-wrap items-center gap-3">
++        <span className="summary-date-chip inline-flex min-h-11 items-center gap-2 rounded-full px-5 text-sm text-body" aria-label={`Tanggal hari ini: ${todayLabel}`}><CalendarDays size={16} aria-hidden="true" /><time dateTime={today}>{todayLabel}</time></span>
++        <Link to={isSales ? '/dashboard/pelanggan' : isFinance ? '/dashboard/invoices' : '/dashboard/katalog'} className="glass inline-flex min-h-11 items-center rounded-full px-5 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-brand">{isSales ? 'Kelola Pelanggan' : isFinance ? 'Tinjau Invoice' : 'Kelola Katalog'}</Link>
++        <button type="button" onClick={() => setExportOpen(true)} disabled={!snapshot || !timezone} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-brand px-5 text-sm font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"><Download size={16} aria-hidden="true" />Ekspor</button>
++      </div>
+     </div>
+     {baseError && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm text-red-600">{baseError}<button type="button" onClick={retry} className="rounded-lg border px-3 py-2 font-semibold">Coba lagi</button></div>}
+     <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-body">Kondisi saat ini</p>
+-    <section aria-label="Kondisi saat ini" className={`summary-kpis grid gap-3 rounded-2xl border border-border bg-slate-100/60 p-3 dark:bg-slate-900/50 ${isSales ? 'summary-sales-kpis' : ''}`}>
+-      {kpis.map(item => <div key={item.statistic} className="min-w-0 rounded-xl border border-white/50 bg-white/60 p-4 dark:border-slate-700 dark:bg-slate-800/50"><div className="flex items-center justify-between gap-2"><h2 className="text-xs font-semibold">{item.label}</h2><InfoPopover statistic={item.statistic} timezone={zone} /></div>{baseLoading ? <Skeleton className="mt-3 h-10 w-28" /> : <p className="summary-kpi-number mt-3 break-words text-[clamp(24px,1.7vw,40px)] font-bold leading-tight">{item.value}</p>}<p className="mt-3 text-xs leading-5 text-body">{item.caption}</p></div>)}
++    <section aria-label="Kondisi saat ini" className={`summary-kpis grid gap-3 ${isSales ? 'summary-sales-kpis' : ''}`}>
++      {kpis.map(item => <div key={item.statistic} className="summary-kpi-card min-w-0 rounded-xl p-4"><div className="flex items-center justify-between gap-2"><h2 className="text-xs font-semibold">{item.label}</h2><InfoPopover statistic={item.statistic} timezone={zone} /></div>{baseLoading ? <Skeleton className="mt-3 h-10 w-28" /> : <p className="summary-kpi-number mt-3 break-words text-[clamp(24px,1.7vw,40px)] font-bold leading-tight">{item.value}</p>}<p className="mt-3 text-xs leading-5 text-body">{item.caption}</p></div>)}
+     </section>
+     <div className="my-6 flex flex-wrap items-center justify-between gap-4">
+       <div role="tablist" aria-label="Rentang waktu ringkasan" className="inline-flex max-w-full gap-1 rounded-full border border-border bg-white/50 p-1 dark:bg-slate-900/50">{dashboardRanges.map((item, index) => <button key={item.id} ref={node => { tabs.current[index] = node }} role="tab" type="button" id={`range-${item.id}`} aria-controls="summary-charts" aria-selected={range === item.id} tabIndex={range === item.id ? 0 : -1} onClick={() => selectRange(item.id)} onKeyDown={event => { const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0; if (!direction && event.key !== 'Home' && event.key !== 'End') return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 3 : (index + direction + 4) % 4; selectRange(dashboardRanges[next].id); tabs.current[next]?.focus() }} className={`min-h-10 whitespace-nowrap rounded-full px-3 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:px-5 ${range === item.id ? 'bg-brand text-white' : 'text-body hover:bg-brand/10'}`}>{item.label}</button>)}</div>
+@@ -97,7 +115,6 @@
+         <SummaryMetricCard timezone={zone} statistic="yearly" caption="Tidak terpengaruh filter Â· Tahun kalender UTC" total={snapshot ? formatCurrency(snapshot.yearly_breakdown.reduce((sum, point) => sum + point.income, 0)) : 'â€”'} loading={baseLoading} error={baseError} onRetry={() => setRetryBase(value => value + 1)}><SummaryChart points={(snapshot?.yearly_breakdown ?? []).map(point => ({ date: point.year, label: point.year, value: point.income }))} money legend="Pembayaran sukses per tahun" /></SummaryMetricCard>
+       </>}
+     </div>
+-    <p className="mt-6 text-xs leading-6 text-body">Pendapatan diterima dihitung dari pembayaran sukses. MRR adalah estimasi bulanan dari langganan aktif, bukan uang yang sudah diterima.</p>
+     {exportOpen && auth && timezone && <SummaryExportDialog onClose={() => setExportOpen(false)} initialPeriod={period} initialPreset={range === 'harian' ? '1b' : range} timezone={timezone} token={auth.token} businessID={auth.user.business_id} salesOnly={Boolean(isSales)} />}
+   </div>
+ }
+--- a/Frontend/src/lib/dashboardPeriod.ts
++++ b/Frontend/src/lib/dashboardPeriod.ts
+@@ -4,8 +4,8 @@
+ export type DashboardRange = typeof dashboardRanges[number]['id']
+ export interface DatePeriod { from: string; to: string }
+ export const rangeGranularity = { harian: 'day', '3b': 'week', '6b': 'month', '12b': 'month' } as const
+-export function businessToday(timezone: string) {
+-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
++export function businessToday(timezone: string, date = new Date()) {
++  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
+   return ['year', 'month', 'day'].map(type => parts.find(part => part.type === type)?.value).join('-')
+ }
+ export function addDays(day: string, count: number) {
+--- a/Frontend/src/index.css
++++ b/Frontend/src/index.css
+@@ -277,8 +277,16 @@
+ html.dark .midtrans-card-form .border-slate-200 { border-color: #64748b; }
+ html.dark .midtrans-card-form .text-slate-900 { color: #eef2ff; }
+ 
+-.summary-page { --summary-tooltip-bg: #fff; --summary-tooltip-text: #101014; --summary-tooltip-border: #e6e8f0; }
+-html.dark .summary-page { --summary-tooltip-bg: #13192a; --summary-tooltip-text: #eef2ff; --summary-tooltip-border: #64748b; --color-body: #c4ccde; --color-border: #475569; }
++.summary-page { --summary-tooltip-bg: #fff; --summary-tooltip-text: #101014; --summary-tooltip-border: #e6e8f0; --card-bg: rgba(255,255,255,0.78); --border-subtle: #e0e4ee; color: var(--color-ink); }
++html.dark .summary-page { --summary-tooltip-bg: #13192a; --summary-tooltip-text: #eef2ff; --summary-tooltip-border: #64748b; --color-ink: #eef2ff; --color-body: #c4ccde; --color-border: #475569; --card-bg: rgba(30,41,59,0.9); --border-subtle: #475569; }
++.summary-kpis { background: transparent; border: 0; padding: 0; backdrop-filter: none; box-shadow: none; }
++.summary-kpis::before, .summary-kpis::after { content: none; }
++.summary-kpi-card { background: var(--card-bg); border: 1px solid var(--border-subtle); box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
++.summary-date-chip { background: var(--card-bg); border: 1px solid var(--border-subtle); }
++@media (max-width: 639px) {
++  .summary-header-actions { display: grid; grid-template-columns: max-content max-content; }
++  .summary-date-chip { grid-column: 1 / -1; justify-self: start; }
++}
+ html.dark .summary-page .glass { background-color: rgba(22,29,48,0.9); }
+ .summary-kpis, .summary-charts { grid-template-columns: minmax(0,1fr); }
+ @media (min-width: 640px) {

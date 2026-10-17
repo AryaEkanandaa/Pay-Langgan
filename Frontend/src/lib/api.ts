@@ -1,6 +1,60 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 
+export interface WebhookLogDTO {
+  id: number; provider: string; event_type: string; reference_id: string
+  status: 'accepted' | 'duplicate' | 'failed'; http_status: number; error_code: string
+  duration_ms: number; received_at: string; processed: boolean
+}
+export interface WebhookLogPageDTO { items: WebhookLogDTO[]; total: number; page: number; limit: number }
+export async function getWebhookLogs(token: string, page: number, provider: string, status: string, signal?: AbortSignal) {
+  const { data } = await request<WebhookLogPageDTO>('/api/v1/settings/webhook-logs', { token, signal, query: { page, provider, status } })
+  return data
+}
+
+export interface WebhookUnreadDTO { count: number; last_seen_at: string; checked_at: string }
+export async function getNewWebhookCount(token: string, signal?: AbortSignal) {
+  const { data } = await request<WebhookUnreadDTO>('/api/v1/settings/webhook-logs/new-count', { token, signal })
+  return data
+}
+export async function markWebhookLogsSeen(token: string, through: string, signal?: AbortSignal) {
+  const { data } = await request<WebhookUnreadDTO>('/api/v1/settings/webhook-logs/seen', { token, signal, method: 'POST', body: { seen_through: through } })
+  return data
+}
+
 export class ApiError extends Error {}
+
+export type CustomerEmailKind = 'invoice_issued' | 'payment_succeeded' | 'trial_started' | 'trial_ending' | 'invoice_due'
+export type CustomerEmailStatus = 'queued' | 'sending' | 'sent' | 'previewed' | 'failed' | 'cancelled'
+export interface CustomerEmailLog {
+  id: number; source: 'invoice' | 'checkout'; kind: CustomerEmailKind; invoice_id: number | null
+  customer_name: string; recipient: string; status: CustomerEmailStatus; attempts: number
+  last_error?: string; created_at: string; sent_at?: string
+}
+export interface CustomerEmailPage { items: CustomerEmailLog[]; total: number; page: number; limit: number; mode: string }
+export interface EmailReminderPreferences { enabled: boolean; enabled_at?: string }
+export async function getCustomerEmailHistory(token: string, page: number, status: string, kind: string, search: string, signal?: AbortSignal) {
+  const { data } = await request<CustomerEmailPage>('/api/v1/email-history', { token, signal, query: { page, status, kind, search } }); return data
+}
+export async function retryCustomerEmail(token: string, item: CustomerEmailLog) {
+  await request<null>(`/api/v1/email-history/${item.source}/${item.id}/retry`, { token, method: 'POST' })
+}
+export async function getCustomerEmailPreview(token: string, item: CustomerEmailLog, signal?: AbortSignal) {
+  const { data } = await request<{ subject: string; html: string }>(`/api/v1/email-history/${item.source}/${item.id}/preview`, { token, signal }); return data
+}
+export async function getEmailReminderPreferences(token: string, signal?: AbortSignal) {
+  const { data } = await request<EmailReminderPreferences>('/api/v1/email-reminders', { token, signal }); return data
+}
+export async function setEmailReminderPreferences(token: string, enabled: boolean) {
+  const { data } = await request<EmailReminderPreferences>('/api/v1/email-reminders', { token, method: 'PUT', body: { enabled } }); return data
+}
+
+export async function requestPasswordReset(email: string, signal?: AbortSignal) {
+  await request<null>('/api/v1/forgot-password', { method: 'POST', body: { email }, signal })
+}
+
+export async function resetPassword(token: string, password: string, confirmation: string, signal?: AbortSignal) {
+  await request<null>('/api/v1/reset-password', { method: 'POST', body: { token, password, password_confirmation: confirmation }, signal })
+}
 
 interface ApiEnvelope<T> {
   success: boolean
@@ -11,6 +65,7 @@ interface ApiEnvelope<T> {
 }
 
 interface RequestOptions {
+  signal?: AbortSignal
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   token?: string
   body?: unknown
@@ -35,6 +90,7 @@ async function request<T>(
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const res = await fetch(url.toString(), {
+    signal: options.signal,
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -205,7 +261,10 @@ export async function createStaffUser(token: string, payload: CreateStaffPayload
   return data
 }
 
+export type CustomerStatus = 'active' | 'trial' | 'prospect' | 'inactive'
+
 export interface Customer {
+  status?: CustomerStatus
   id: number
   business_id: string
   name: string
@@ -215,6 +274,7 @@ export interface Customer {
 }
 
 export interface CustomerListParams {
+  status?: CustomerStatus
   page?: number
   limit?: number
   search?: string
@@ -239,7 +299,7 @@ export async function listCustomers(
 ): Promise<CustomerListResult> {
   const { data, meta } = await request<Customer[] | null>('/api/v1/customers', {
     token,
-    query: { page: params.page, limit: params.limit, search: params.search },
+    query: { page: params.page, limit: params.limit, search: params.search, status: params.status },
   })
   const items = data ?? []
 
@@ -418,6 +478,7 @@ export async function deletePlan(token: string, id: number) {
 }
 
 export interface AddOn {
+  visible_in_checkout: boolean
   id: number
   product_id: number
   name: string
@@ -428,6 +489,7 @@ export interface AddOn {
 }
 
 export interface AddOnPayload {
+  visible_in_checkout?: boolean
   product_id: number
   name: string
   price: number
@@ -459,6 +521,7 @@ export async function deleteAddOn(token: string, id: number) {
 }
 
 export interface DashboardSummary {
+  range_stats?: DashboardRangeStats
   active_customers: number
   active_subscriptions: number
   mrr: number
@@ -477,8 +540,16 @@ export interface DashboardSummary {
   yearly_breakdown: Array<{ year: string; income: number }>
 }
 
-export async function getDashboardSummary(token: string) {
-  const { data } = await request<DashboardSummary>('/api/v1/dashboard/summary', { token })
+export interface DashboardRangePoint {
+  date: string; revenue: number; new_subscriptions: number; cancelled_subscriptions: number
+  payments_succeeded: number; payments_failed: number; autopay_succeeded: number; autopay_failed: number
+}
+export interface DashboardRangeStats {
+  from: string; to: string; timezone: string; granularity: 'day' | 'week' | 'month'
+  series: DashboardRangePoint[]; revenue_by_plan: DashboardSummary['revenue_by_plan']
+}
+export async function getDashboardSummary(token: string, period?: { from: string; to: string; granularity: 'day' | 'week' | 'month' }) {
+  const { data } = await request<DashboardSummary>('/api/v1/dashboard/summary', { token, query: period })
   return data
 }
 
@@ -498,6 +569,7 @@ export async function getPlatformDashboardSummary(token: string) {
 export type InvoiceStatus = 'pending' | 'paid' | 'failed' | 'cancelled'
 
 export interface Invoice {
+  checkout_status?: string
   id: number
   subscription_id: number
   invoice_number: string
@@ -561,8 +633,8 @@ export async function listInvoices(
   }
 }
 
-export async function getInvoice(token: string, id: number) {
-  const { data } = await request<InvoiceDetail>(`/api/v1/invoices/${id}`, { token })
+export async function getInvoice(token: string, id: number, signal?: AbortSignal) {
+  const { data } = await request<InvoiceDetail>(`/api/v1/invoices/${id}`, { token, signal })
   return data
 }
 
@@ -581,10 +653,16 @@ export interface CheckoutLink {
 }
 
 export interface PublicCheckout {
+	card_registration?: boolean
+	payment_provider?: 'xendit' | 'midtrans'
+	billing_cycle?: 'monthly' | 'yearly'
+	trial_days?: number
+	trial_ends_at?: string
+  items?: { type: string; description: string; quantity: number; subtotal: number }[]
   invoice_number: string
   amount: number
-  invoice_status: InvoiceStatus
-  checkout_status: 'created' | 'creating' | 'active' | 'completed' | 'expired' | 'failed'
+  invoice_status: InvoiceStatus | 'not_issued'
+  checkout_status: 'created' | 'creating' | 'active' | 'completed' | 'expired' | 'failed' | 'cancelled'
   customer_name: string
   customer_email?: string
   customer_mobile?: string
@@ -594,6 +672,7 @@ export interface PublicCheckout {
 }
 
 export interface StartCheckoutPayload {
+	card_consent?: boolean
   name: string
   email: string
   mobile: string
@@ -601,9 +680,13 @@ export interface StartCheckoutPayload {
 }
 
 export interface StartedCheckout {
+	card_registration?: boolean
   provider: 'xendit' | 'midtrans'
   payment_session_id: string
-  mode: 'COMPONENTS' | 'SNAP'
+  mode: 'COMPONENTS' | 'SNAP' | 'CORE'
+  client_key?: string
+  environment?: 'sandbox' | 'production'
+  authentication_url?: string
   components_sdk_key?: string
   snap_token?: string
   snap_client_key?: string
@@ -625,10 +708,32 @@ export async function getPublicCheckout(token: string) {
   return data
 }
 
+export async function cancelPublicCheckout(token: string) {
+  const { data } = await request<PublicCheckout>(`/api/v1/checkout/${token}/cancel`, { method: 'POST' })
+  return data
+}
+
+export async function registerMidtransTrialCard(token: string, receipt: { saved_token_id: string; transaction_id: string }) {
+  const { data } = await request<PublicCheckout>(`/api/v1/checkout/${token}/card-registration`, { method: 'POST', body: receipt })
+  return data
+}
+
+export async function verifyMidtransCard(token: string) {
+  const { data } = await request<PublicCheckout>(`/api/v1/checkout/${token}/card-payment/verify`, { method: 'POST' })
+  return data
+}
+
 export async function startPublicCheckout(token: string, payload: StartCheckoutPayload) {
   const { data } = await request<StartedCheckout>(`/api/v1/checkout/${token}/session`, {
     method: 'POST',
     body: payload,
+  })
+  return data
+}
+
+export async function chargeMidtransCard(token: string, payload: { token_id: string; name: string; email: string; mobile: string }) {
+  const { data } = await request<{ authentication_url?: string; status: string }>(`/api/v1/checkout/${token}/card-payment`, {
+    method: 'POST', body: payload,
   })
   return data
 }
@@ -689,9 +794,10 @@ export async function deleteCoupon(token: string, id: number) {
   await request<null>(`/api/v1/coupons/${id}`, { method: 'DELETE', token })
 }
 
-export type SubscriptionStatus = 'trial' | 'active' | 'paused' | 'cancelled'
+export type SubscriptionStatus = 'pending' | 'trial' | 'active' | 'paused' | 'cancelled'
 
 export interface Subscription {
+  checkout_status?: string
   id: number
   customer_id: number
   plan_id: number
@@ -867,4 +973,45 @@ export async function saveBusinessPaymentGateway(token: string, payload: Busines
 
 export async function deleteBusinessPaymentGateway(token: string) {
   await request<{ removed: boolean }>('/api/v1/settings/payment-gateway', { method: 'DELETE', token })
+}
+
+export interface CheckoutAddOnSelection { add_on_id: number; quantity: number }
+export interface EmbedPlanPreview {
+  business_name: string; plan_name: string; billing_cycle: string; amount: number
+  due_now: number; trial_days: number; coupon_code?: string
+  add_ons: Array<{ id: number; name: string; price: number }>
+  items: Array<{ type: string; name: string; quantity: number; subtotal: number }>
+}
+export interface EmbedCheckoutOrder {
+  checkout_url?: string; external_order_id: string; invoice_id: number; invoice_status: string
+  subscription_id: number; subscription_status: string; trial_ends_at?: string
+}
+export async function getEmbedPlan(site: string, plan: string, addOns: CheckoutAddOnSelection[] = [], couponCode = '', signal?: AbortSignal) {
+  const query = new URLSearchParams({ add_ons: JSON.stringify(addOns), coupon_code: couponCode })
+  return (await request<EmbedPlanPreview>(`/api/v1/embed/sites/${encodeURIComponent(site)}/plans/${encodeURIComponent(plan)}?${query}`, { signal })).data
+}
+export async function createEmbedCheckout(site: string, plan: string, customer: { name: string; email: string; mobile: string }, options: { add_ons?: CheckoutAddOnSelection[]; coupon_code?: string; request_id?: string } = {}) {
+  return (await request<EmbedCheckoutOrder>(`/api/v1/embed/sites/${encodeURIComponent(site)}/orders`, {
+    method: 'POST', body: { ...(plan.startsWith('pl_plan_') ? { plan_public_id: plan } : { plan_id: Number(plan) }), customer, ...options },
+  })).data
+}
+
+
+export interface InvoiceEmailState {
+  mode: 'disabled' | 'preview' | 'smtp'
+  delivery: { status: 'queued' | 'sending' | 'sent' | 'previewed' | 'failed'; recipient: string; attempts: number; last_error: string | null; sent_at: string | null } | null
+}
+export async function getInvoiceEmail(token: string, id: number, signal?: AbortSignal) {
+  return (await request<InvoiceEmailState>(`/api/v1/invoices/${id}/email`, { token, signal })).data
+}
+export async function queueInvoiceEmail(token: string, id: number, signal?: AbortSignal) {
+  return (await request<InvoiceEmailState>(`/api/v1/invoices/${id}/email`, { token, method: 'POST', signal })).data
+}
+export async function previewInvoiceEmail(token: string, id: number) {
+  return (await request<{subject: string; html: string; logo_warning?: string}>(`/api/v1/invoices/${id}/email-preview`, { token })).data
+}
+
+export interface InvoiceAppearancePreview { subject: string; html: string; logo_warning: string }
+export async function previewInvoiceAppearance(token: string, settings: JSONMap, kind: 'invoice_issued' | 'payment_succeeded', signal?: AbortSignal) {
+  return (await request<InvoiceAppearancePreview>('/api/v1/invoice-appearance/preview', { token, method: 'POST', body: { settings, kind }, signal })).data
 }

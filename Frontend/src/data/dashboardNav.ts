@@ -1,4 +1,4 @@
-import { FileText, LayoutDashboard, Users, Repeat, LayoutGrid, Ticket, Settings, type LucideIcon } from 'lucide-react'
+import { FileText, LayoutDashboard, Users, Repeat, LayoutGrid, Ticket, Settings, Webhook, type LucideIcon } from 'lucide-react'
 import type { UserRole } from '../lib/api'
 
 export interface DashboardNavItem {
@@ -27,6 +27,7 @@ export const dashboardNavItems: DashboardNavItem[] = [
     ],
   },
   { label: 'Kupon', to: '/dashboard/kupon', icon: Ticket, allowedRoles: ['admin', 'sales'] },
+  { label: 'Webhook Logs', to: '/dashboard/webhook-logs', icon: Webhook, allowedRoles: ['admin'] },
   {
     label: 'Pengaturan',
     to: '/dashboard/pengaturan',
@@ -36,7 +37,6 @@ export const dashboardNavItems: DashboardNavItem[] = [
       { label: 'Bisnis', to: '/dashboard/pengaturan' },
       { label: 'Payment Gateway', to: '/dashboard/pengaturan/payment-gateway' },
       { label: 'Integrasi Website', to: '/dashboard/integrasi' },
-      { label: 'Tagihan PayLanggan', to: '/dashboard/tagihan-platform' },
     ],
   },
 ]

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { XenditComponents, type XenditSubmissionEndEvent } from 'xendit-components-web'
-import DashboardPageHeader from '../../components/dashboard/DashboardPageHeader'
+import SubscriptionCard from './SubscriptionCard'
+import InvoiceHistory from './InvoiceHistory'
+import ConfirmDialog from '../ui/ConfirmDialog'
 import { useAuth } from '../../context/AuthContext'
 import {
   ApiError, cancelPlatformSubscription, getPlatformInvoices, getPlatformPlan,
@@ -10,19 +12,7 @@ import {
 } from '../../lib/api'
 import { formatCurrency } from '../../lib/format'
 
-function date(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'
-}
-
-const subscriptionStatus: Record<PlatformSubscription['status'], string> = {
-  not_subscribed: 'Belum berlangganan',
-  pending: 'Menunggu pembayaran',
-  active: 'Aktif',
-  past_due: 'Pembayaran belum selesai',
-  cancelled: 'Perpanjangan dihentikan',
-}
-
-export default function PlatformBillingPage() {
+export default function PlatformBillingSection() {
   const [searchParams] = useSearchParams()
   const returningFromXendit = searchParams.has('token_request_id')
   const { auth } = useAuth()
@@ -33,6 +23,7 @@ export default function PlatformBillingPage() {
   const [consent, setConsent] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [cancelOpen, setCancelOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [session, setSession] = useState<PlatformCheckout | null>(null)
@@ -42,7 +33,6 @@ export default function PlatformBillingPage() {
   const cardContainer = useRef<HTMLDivElement>(null)
   const componentsRef = useRef<XenditComponents | null>(null)
   const resumed = useRef(false)
-
   const refresh = useCallback(async () => {
     if (!token) return
     try {
@@ -172,10 +162,11 @@ export default function PlatformBillingPage() {
   }
 
   async function cancel() {
-    if (!token || !window.confirm('Hentikan perpanjangan otomatis PayLanggan? Periode yang sudah dibayar tetap tercatat hingga tanggal berakhir.')) return
+    if (!token || !subscription?.auto_renew) return
     setBusy(true); setError(null)
     try {
       await cancelPlatformSubscription(token)
+      setCancelOpen(false)
       setNotice('Perpanjangan otomatis telah dihentikan.')
       await refresh()
     } catch (err) { setError(err instanceof ApiError ? err.message : 'Gagal membatalkan langganan.') }
@@ -184,35 +175,27 @@ export default function PlatformBillingPage() {
 
   if (loading) return <p className="p-6">Memuat tagihan PayLanggan...</p>
   return <div className="space-y-6">
-    <DashboardPageHeader title="Tagihan PayLanggan" description="Langganan bisnis Anda untuk menggunakan PayLanggan." />
-    {error && <p role="alert" className="rounded-lg bg-red-50 p-4 text-red-700">{error}</p>}
-    {notice && <p role="status" className="rounded-lg bg-green-50 p-4 text-green-700">{notice}</p>}
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-xl font-semibold">{plan?.name ?? 'PayLanggan Bulanan'}</h2>
-      <p className="mt-2 text-2xl font-bold">{formatCurrency(plan?.amount ?? 300000)} <span className="text-base font-normal">/ bulan</span></p>
-      <p className="mt-3">Status langganan: <strong>{subscription ? subscriptionStatus[subscription.status] : '—'}</strong></p>
-      {subscription?.paid_through && <p>Berlaku sampai: {date(subscription.paid_through)}</p>}
-      {subscription?.next_billing_date && <p>Periode tagihan berikutnya: {date(subscription.next_billing_date)}</p>}
-      <p>Pembayaran otomatis: {subscription?.auto_renew ? 'Aktif' : 'Belum aktif'}</p>
-      {subscription?.legacy_checkout_active && <p className="mt-4 text-sm text-amber-800">Sesi pembayaran lama masih aktif. Tunggu sesi berakhir sebelum membuat pembayaran baru di halaman ini.</p>}
-      {subscription?.checkout_available && !session && !verifying && <button type="button" disabled={busy} onClick={resumeCheckout} className="mt-4 rounded-lg bg-blue-700 px-5 py-2 text-white disabled:opacity-50">Lanjutkan pembayaran</button>}
-      {verifying && <p role="status" className="mt-4 text-sm text-blue-700">Kami sedang memastikan pembayaran Anda. Status tagihan akan diperbarui otomatis.</p>}
+    {error && <p role="alert" className="rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
+    {notice && <p role="status" className="rounded-lg bg-green-50 p-4 text-green-700 dark:bg-emerald-950 dark:text-emerald-200">{notice}</p>}
+    <div className="grid items-start gap-6">
+    <SubscriptionCard plan={plan} subscription={subscription} busy={busy} onCancel={() => setCancelOpen(true)}>
+      {subscription?.legacy_checkout_active && <p className="mt-4 text-sm text-amber-800 dark:text-amber-200">Sesi pembayaran lama masih aktif. Tunggu sesi berakhir sebelum membuat pembayaran baru di halaman ini.</p>}
+      {subscription?.checkout_available && !session && !verifying && <button type="button" disabled={busy} onClick={resumeCheckout} className="mt-4 rounded-lg bg-blue-700 px-5 py-2 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-50">Lanjutkan pembayaran</button>}
+      {verifying && <p role="status" className="mt-4 text-sm text-blue-700 dark:text-blue-200">Kami sedang memastikan pembayaran Anda. Status tagihan akan diperbarui otomatis.</p>}
       {session && !verifying && <div className="mt-5 max-w-xl space-y-4">
-        <p className="text-sm text-slate-600">Masukkan detail kartu pada formulir pembayaran aman berikut.</p>
+        <p className="text-sm text-body">Masukkan detail kartu pada formulir pembayaran aman berikut.</p>
         <div ref={cardContainer} className="checkout-card-fields" aria-label="Formulir pembayaran kartu" />
-        <button type="button" disabled={!cardReady || submitting} onClick={pay} className="rounded-lg bg-blue-700 px-5 py-2 text-white disabled:opacity-50">{submitting ? 'Memproses pembayaran...' : `Bayar ${formatCurrency(session.amount)}`}</button>
+        <button type="button" disabled={!cardReady || submitting} onClick={pay} className="rounded-lg bg-blue-700 px-5 py-2 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-50">{submitting ? 'Memproses pembayaran...' : `Bayar ${formatCurrency(session.amount)}`}</button>
       </div>}
       {(subscription?.status === 'not_subscribed' || subscription?.status === 'pending' || subscription?.status === 'past_due') && !subscription.checkout_available && !subscription.legacy_checkout_active && !session && !verifying && <div className="mt-5 space-y-3">
-        <label className="flex items-start gap-3"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} className="mt-1" />
+        <label className="flex items-start gap-3 text-sm text-body"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} className="mt-1 accent-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand" />
           <span>Saya menyetujui pembayaran {formatCurrency(plan?.amount ?? 300000)} sekarang dan pendebitan kartu otomatis sebesar {formatCurrency(plan?.amount ?? 300000)} setiap bulan selama langganan aktif. Saya dapat membatalkan perpanjangan otomatis melalui halaman ini.</span>
         </label>
-        <button type="button" disabled={!consent || busy} onClick={checkout} className="rounded-lg bg-blue-700 px-5 py-2 text-white disabled:opacity-50">{busy ? 'Memproses...' : 'Lanjut ke pembayaran'}</button>
+        <button type="button" disabled={!consent || busy} onClick={checkout} className="rounded-lg bg-blue-700 px-5 py-2 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-50">{busy ? 'Memproses...' : 'Lanjut ke pembayaran'}</button>
       </div>}
-      {(subscription?.status === 'active' || subscription?.status === 'past_due') && <button type="button" disabled={busy} onClick={cancel} className="mt-5 rounded-lg border border-red-300 px-4 py-2 text-red-700 disabled:opacity-50">Hentikan perpanjangan otomatis</button>}
-    </section>
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="mb-4 text-xl font-semibold">Riwayat tagihan</h2>
-      {invoices.length === 0 ? <p>Belum ada tagihan.</p> : <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Periode</th><th className="p-2">Jumlah</th><th className="p-2">Status</th><th className="p-2">Dibayar</th></tr></thead><tbody>{invoices.map(item => <tr key={item.id} className="border-t"><td className="p-2">{date(item.period_start)} – {date(item.period_end)}</td><td className="p-2">{formatCurrency(item.amount)}</td><td className="p-2">{item.status === 'paid' ? 'Lunas' : 'Menunggu pembayaran'}</td><td className="p-2">{date(item.paid_at)}</td></tr>)}</tbody></table></div>}
-    </section>
+    </SubscriptionCard>
+    <InvoiceHistory invoices={invoices} resumableInvoiceId={subscription?.checkout_available ? subscription.pending_invoice?.id : undefined} busy={busy} onResume={() => { void resumeCheckout() }} />
+    </div>
+    <ConfirmDialog open={cancelOpen} onClose={() => setCancelOpen(false)} onConfirm={() => { void cancel() }} busy={busy} error={error} title="Hentikan perpanjangan otomatis?" description="Periode yang sudah dibayar tetap tercatat hingga tanggal berakhir." confirmLabel="Hentikan perpanjangan otomatis" />
   </div>
 }

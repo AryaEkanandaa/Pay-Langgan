@@ -15,6 +15,7 @@ import (
 	identityhttp "pay-langgan/internal/handlers/identity"
 	paymenthttp "pay-langgan/internal/handlers/payment"
 	platformhttp "pay-langgan/internal/handlers/platformbilling"
+	portalhttp "pay-langgan/internal/handlers/portal"
 	revenuehttp "pay-langgan/internal/handlers/revenue"
 	subscriptionhttp "pay-langgan/internal/handlers/subscription"
 	"pay-langgan/internal/repositories/audit"
@@ -34,6 +35,7 @@ import (
 	identitysvc "pay-langgan/internal/services/identity"
 	paymentsvc "pay-langgan/internal/services/payment"
 	platformsvc "pay-langgan/internal/services/platformbilling"
+	portalsvc "pay-langgan/internal/services/portal"
 	revenuesvc "pay-langgan/internal/services/revenue"
 	subscriptionsvc "pay-langgan/internal/services/subscription"
 	paymentprovider "pay-langgan/pkg/payment"
@@ -115,6 +117,7 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
+	e.GET("/public-assets/invoice-logos/:file", billinghttp.InvoiceLogoAsset(cfg))
 
 	e.GET("/health", func(c echo.Context) error {
 		return c.JSON(200, map[string]interface{}{
@@ -139,6 +142,8 @@ func main() {
 		Customer:        customerHandler,
 		Subscription:    subscriptionHandler,
 		Invoice:         invoiceHandler,
+		InvoiceEmail:    &billinghttp.EmailHandler{Invoice: invoiceService, Checkout: checkoutService, Config: cfg},
+		Portal:          &portalhttp.Handler{Service: portalsvc.NewService(db, cfg), Invoice: invoiceService, Checkout: checkoutService},
 		Checkout:        checkoutHandler,
 		Merchant:        merchantHandler,
 		BusinessGateway: businessGatewayHandler,

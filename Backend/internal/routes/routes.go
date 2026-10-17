@@ -14,6 +14,7 @@ import (
 	"pay-langgan/internal/handlers/identity"
 	paymenthttp "pay-langgan/internal/handlers/payment"
 	platformhttp "pay-langgan/internal/handlers/platformbilling"
+	portalhttp "pay-langgan/internal/handlers/portal"
 	"pay-langgan/internal/handlers/revenue"
 	"pay-langgan/internal/handlers/subscription"
 	"pay-langgan/internal/middlewares"
@@ -36,6 +37,8 @@ type AllHandlers struct {
 	Customer        *customer.CustomerHandler
 	Subscription    *subscription.SubscriptionHandler
 	Invoice         *billing.InvoiceHandler
+	InvoiceEmail    *billing.EmailHandler
+	Portal          *portalhttp.Handler
 	Checkout        *paymenthttp.CheckoutHandler
 	Merchant        *paymenthttp.MerchantIntegrationHandler
 	BusinessGateway *paymenthttp.BusinessGatewayHandler
@@ -48,11 +51,33 @@ func RegisterRoutes(e *echo.Echo, h *AllHandlers, jwtSecret string) {
 
 	api.POST("/signup", h.Auth.Signup)
 	api.POST("/login", h.Auth.Login)
+	api.POST("/forgot-password", h.Auth.ForgotPassword, h.Auth.PasswordResetLimit())
+	api.POST("/reset-password", h.Auth.ResetPassword, h.Auth.PasswordResetLimit())
+	if h.Portal != nil {
+		portal := api.Group("/portal/:site", h.Portal.Headers, h.Portal.RateLimit())
+		portal.GET("", h.Portal.Business)
+		portal.POST("/request-link", h.Portal.Request)
+		portal.POST("/exchange", h.Portal.Exchange)
+		portal.GET("/overview", h.Portal.Overview)
+		portal.POST("/logout", h.Portal.Logout)
+		portal.GET("/invoices/:id", h.Portal.InvoiceDetail)
+		portal.POST("/invoices/:id/checkout", h.Portal.Pay)
+	}
+	if h.InvoiceEmail != nil {
+		api.GET("/invoice-emails/:token", h.InvoiceEmail.Public)
+		api.GET("/invoice-emails/:token/download", h.InvoiceEmail.Download)
+		api.POST("/invoice-emails/:token/checkout", h.InvoiceEmail.Pay)
+	}
 	api.GET("/checkout/:token", h.Checkout.Get, h.Checkout.RateLimit(false))
+	api.POST("/checkout/:token/cancel", h.Checkout.Cancel, h.Checkout.RateLimit(true))
 	api.POST("/checkout/:token/session", h.Checkout.Start, h.Checkout.RateLimit(true))
+	api.POST("/checkout/:token/card-payment", h.Checkout.ChargeMidtransCard, h.Checkout.RateLimit(true))
+	api.POST("/checkout/:token/card-payment/verify", h.Checkout.VerifyMidtransCard, h.Checkout.RateLimit(true))
+	api.POST("/checkout/:token/card-registration", h.Checkout.RegisterMidtransTrialCard, h.Checkout.RateLimit(true))
 	api.POST("/integrations/orders", h.Merchant.CreateOrder)
 	api.GET("/integrations/orders/:reference", h.Merchant.GetOrder)
 	api.POST("/embed/sites/:site/orders", h.Merchant.CreateEmbedOrder)
+	api.GET("/embed/sites/:site/plans/:plan", h.Merchant.PreviewEmbedPlan)
 	api.POST("/webhooks/xendit/payment-sessions", func(c echo.Context) error {
 		c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 1<<20)
 		body, err := io.ReadAll(c.Request().Body)
@@ -85,6 +110,7 @@ func RegisterRoutes(e *echo.Echo, h *AllHandlers, jwtSecret string) {
 		}
 		return false
 	}))
+	protected.Use(h.Auth.RequireCurrentSession)
 
 	registerIdentityRoutes(protected, h)
 	registerCatalogRoutes(protected, h)
@@ -100,6 +126,10 @@ func RegisterRoutes(e *echo.Echo, h *AllHandlers, jwtSecret string) {
 	businessGateway.GET("", h.BusinessGateway.Get)
 	businessGateway.PUT("", h.BusinessGateway.Save)
 	businessGateway.DELETE("", h.BusinessGateway.Delete)
+	webhookLogs := protected.Group("/settings/webhook-logs", middlewares.RequireTenantUser, middlewares.RequireRoles(models.RoleAdmin))
+	webhookLogs.GET("", h.Checkout.ListWebhookLogs)
+	webhookLogs.GET("/new-count", h.Checkout.NewWebhookCount)
+	webhookLogs.POST("/seen", h.Checkout.MarkWebhookLogsSeen)
 	embedSites := protected.Group("/integrations/embed-sites", middlewares.RequireTenantUser, middlewares.RequireRoles(models.RoleAdmin))
 	embedSites.POST("", h.Merchant.CreateEmbedSite)
 	embedSites.GET("", h.Merchant.ListEmbedSites)

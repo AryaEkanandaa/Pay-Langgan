@@ -42,3 +42,4 @@ temp/
 .gocache-*/
 
 .tmp
+/Backend/storage/invoice-logos/

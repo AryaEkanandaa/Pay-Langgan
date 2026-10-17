@@ -2,8 +2,10 @@
 
 ## Keputusan ruang lingkup
 
-Integrasi pertama menggunakan Xendit dan hanya menerima kartu kredit. Midtrans
-belum dihubungkan ke alur pembayaran. Ada dua alur bisnis yang nantinya terpisah:
+Integrasi pertama menggunakan Xendit dan hanya menerima pembayaran kartu.
+Pelanggan bisnis juga dapat membayar melalui Midtrans Core API jika bisnis
+memilih Midtrans sebagai gateway. Lihat [checkout kartu Midtrans](midtrans-card-checkout.md).
+Ada dua alur bisnis yang terpisah:
 
 1. Bisnis membayar biaya platform PayLanggan melalui Xendit.
 2. Customer bisnis membayar subscription melalui hosted page PayLanggan dan
@@ -301,7 +303,7 @@ dikirim melalui endpoint manajemen ini.
 
 ## Pembayaran subscription otomatis
 
-Auto-debit menggunakan token tersimpan melalui
+Auto-debit Xendit menggunakan token tersimpan melalui
 [`POST /v3/payment_requests`](https://docs.xendit.co/apidocs/create-payment-request),
 dengan `type=PAY`, `card_on_file_type=RECURRING`, `transaction_sequence=SUBSEQUENT`,
 dan konfigurasi frekuensi/expiry. Lihat
@@ -309,6 +311,27 @@ dan konfigurasi frekuensi/expiry. Lihat
 dan [subsequent transactions](https://docs.xendit.co/docs/subsequent-merchant-initiated-transaction).
 Token tersimpan tidak otomatis berarti pelanggan telah menyetujui auto-debit.
 Kelayakan kartu/token dan izin recurring merchant perlu diverifikasi di sandbox.
+
+### Auto-debit Midtrans
+
+Untuk bisnis yang memilih Midtrans, PayLanggan memakai token kartu tersimpan
+(`saved_token_id`) yang didaftarkan pelanggan saat checkout trial. Worker membuat
+charge kartu Core API `/v2/charge` dengan `credit_card.token_id` berisi token
+tersimpan dan `transaction_details.order_id` unik per invoice. Jadwal tetap
+dikelola oleh worker billing PayLanggan; PayLanggan tidak membuat jadwal kedua
+melalui Midtrans Subscription API.
+
+Status charge direkonsiliasi menggunakan Midtrans `GET /v2/{order_id}/status`.
+Jika request timeout setelah dikirim, worker memakai `order_id` yang telah
+disimpan sebelum request dan tidak mengirim ulang debit yang sama. PayLanggan
+hanya menyimpan token ID, bukan nomor kartu atau CVV.
+
+Midtrans perlu mengaktifkan fitur penyimpanan kartu/One Click pada merchant.
+Untuk Subscription API yang jadwalnya dikelola Midtrans, Midtrans menyebut
+persyaratan recurring MID tersendiri; jalur PayLanggan di atas memakai charge
+per invoice dan perlu diuji pada Sandbox merchant sebelum Production. Lihat
+[Core API Advanced Features](https://docs.midtrans.com/docs/coreapi-advanced-features)
+dan [Card Payment Integration](https://docs.midtrans.com/docs/coreapi-card-payment-integration).
 
 Ada dua syarat aktivasi yang terpisah:
 
@@ -349,7 +372,8 @@ Alur operasional:
 3. Worker mencatat payment/attempt dan mengunci klaim sebelum menghubungi Xendit.
    Nominal di luar batas persetujuan dicatat gagal tanpa mengirim debit.
 4. Hasil `SUCCEEDED` menandai invoice paid dan mencatat payment ID. Hasil belum
-   final diperiksa ulang melalui `GET /v3/payment_requests/:id`.
+   final diperiksa ulang melalui Xendit `GET /v3/payment_requests/:id` atau
+   Midtrans `GET /v2/:order_id/status`.
 
 Kebijakan awal adalah **satu percobaan debit per invoice**. Penolakan final
 (`FAILED`, `EXPIRED`, `CANCELED`) menyimpan kode kegagalan dan membiarkan invoice

@@ -5,10 +5,13 @@ import Logo from '../ui/Logo'
 import ThemeToggle from '../ui/ThemeToggle'
 import { dashboardNavItems } from '../../data/dashboardNav'
 import { useAuth } from '../../context/AuthContext'
+import NavBadge from '../ui/NavBadge'
+import { useNewWebhookCount, WebhookNotificationsContext } from '../../hooks/useNewWebhookCount'
 
 export default function DashboardLayout() {
   const { auth, logout } = useAuth()
   const location = useLocation()
+  const webhooks = useNewWebhookCount(auth?.token, auth?.user.role === 'admin')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const visibleNavItems = dashboardNavItems.filter(
     (item) => !item.allowedRoles || item.allowedRoles.includes(auth?.user.role ?? 'admin'),
@@ -19,11 +22,13 @@ export default function DashboardLayout() {
     isPathActive(item.to) || Boolean(item.children?.some((child) => isPathActive(child.to.split('#')[0])))
 
   useEffect(() => {
-    const activeItem = visibleNavItems.find((item) => isNavItemActive(item) && item.children)
-    if (activeItem) setOpenMenu(activeItem.to)
+    const matches = (to: string) => location.pathname === to || (to !== '/dashboard' && location.pathname.startsWith(`${to}/`))
+    const activeItem = dashboardNavItems.find(item => item.children && (!item.allowedRoles || item.allowedRoles.includes(auth?.user.role ?? 'admin')) && (matches(item.to) || item.children.some(child => matches(child.to.split('#')[0]))))
+    setOpenMenu(activeItem?.to ?? null)
   }, [location.pathname, auth?.user.role])
 
   return (
+    <WebhookNotificationsContext.Provider value={webhooks}>
     <div className="flex min-h-screen">
       <aside className="sticky top-0 hidden h-screen max-h-screen w-64 shrink-0 flex-col overflow-y-auto bg-gradient-to-b from-ink to-deep px-5 py-6 md:flex">
         <div className="mb-8 flex items-center justify-between gap-2">
@@ -40,12 +45,15 @@ export default function DashboardLayout() {
                 <div className="flex items-center">
                   <Link
                     to={item.to}
+                    aria-current={isActive ? 'page' : undefined}
+                    aria-label={item.label === 'Webhook Logs' ? `Webhook Logs, ${webhooks.count} baru` : undefined}
                     className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-medium transition-colors ${
                       isActive ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10 hover:text-white'
                     }`}
                   >
                     <Icon size={18} strokeWidth={2} />
                     <span className="truncate">{item.label}</span>
+                    {item.label === 'Webhook Logs' && <span className="ml-auto"><NavBadge count={webhooks.count} /></span>}
                   </Link>
                   {item.children && (
                     <button
@@ -98,7 +106,7 @@ export default function DashboardLayout() {
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between bg-gradient-to-b from-ink to-deep px-5 py-4 md:hidden">
           <Logo variant="light" />
           <div className="flex items-center gap-2">
@@ -116,11 +124,14 @@ export default function DashboardLayout() {
               <Fragment key={item.to}>
                 <Link
                   to={item.to}
+                  aria-current={isActive ? 'page' : undefined}
+                  aria-label={item.label === 'Webhook Logs' ? `Webhook Logs, ${webhooks.count} baru` : undefined}
                   className={`whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
                     isActive ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   {item.label}
+                  {item.label === 'Webhook Logs' && <span className="ml-2 inline-flex align-middle"><NavBadge count={webhooks.count} /></span>}
                 </Link>
                 {isActive && item.children?.map((child) => {
                   const [childPath, childHash] = child.to.split('#')
@@ -142,10 +153,11 @@ export default function DashboardLayout() {
           })}
         </nav>
 
-        <main className="flex-1 px-5 py-8 md:px-10 md:py-10">
+        <main className={`flex-1 py-8 md:py-10 ${['/dashboard', '/dashboard/integrasi', '/dashboard/pengaturan', '/dashboard/pengaturan/payment-gateway'].includes(location.pathname) ? 'px-6 min-[900px]:px-10' : 'px-5 md:px-10'}`}>
           <Outlet />
         </main>
       </div>
     </div>
+    </WebhookNotificationsContext.Provider>
   )
 }

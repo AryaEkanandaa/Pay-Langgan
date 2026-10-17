@@ -1,6 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowRight, FileText } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
+import TeamMembersCard from '../../components/team/TeamMembersCard'
+import PlatformBillingSection from '../../components/billing/PlatformBillingSection'
+import SettingsSection from '../../components/dashboard/SettingsSection'
+import SettingsRow from '../../components/dashboard/SettingsRow'
 import DashboardPageHeader from '../../components/dashboard/DashboardPageHeader'
 import FormSkeleton from '../../components/ui/skeletons/FormSkeleton'
 import GlassPanel from '../../components/ui/GlassPanel'
@@ -20,16 +24,9 @@ import {
 } from '../../lib/api'
 
 const timezones = ['Asia/Makassar', 'Asia/Jakarta', 'Asia/Jayapura', 'UTC']
-const TEAM_PAGE_SIZE = 4
-
-const roleLabel: Record<UserDTO['role'], string> = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  sales: 'Sales',
-  finance: 'Finance',
-}
-
 export default function PengaturanPage() {
+  const location = useLocation()
+  const billingRef = useRef<HTMLDivElement>(null)
   const { auth } = useAuth()
   const token = auth?.token
   const [business, setBusiness] = useState<BusinessDTO | null>(null)
@@ -49,7 +46,13 @@ export default function PengaturanPage() {
   const [isCreatingStaff, setIsCreatingStaff] = useState(false)
   const [staffModalOpen, setStaffModalOpen] = useState(false)
   const [businessModalOpen, setBusinessModalOpen] = useState(false)
-  const [teamPage, setTeamPage] = useState(1)
+
+  useEffect(() => {
+    if (location.hash !== '#langganan-tagihan') return
+    const frame = window.requestAnimationFrame(() => billingRef.current?.scrollIntoView({ block: 'start' }))
+    return () => window.cancelAnimationFrame(frame)
+  }, [location.hash, isLoading])
+
 
   useEffect(() => {
     if (!token) return
@@ -69,7 +72,7 @@ export default function PengaturanPage() {
         setError(err instanceof ApiError ? err.message : 'Gagal memuat pengaturan bisnis.')
       })
       .finally(() => setIsLoading(false))
-  }, [token])
+  }, [token, auth?.user.role])
 
   async function handleCreateStaff(event: FormEvent) {
     event.preventDefault()
@@ -86,7 +89,6 @@ export default function PengaturanPage() {
         role: staffRole,
       })
       setUsers((current) => [...current, user])
-      setTeamPage(Math.ceil((users.length + 1) / TEAM_PAGE_SIZE))
       setStaffName('')
       setStaffEmail('')
       setStaffPassword('')
@@ -98,9 +100,6 @@ export default function PengaturanPage() {
       setIsCreatingStaff(false)
     }
   }
-
-  const totalTeamPages = Math.max(1, Math.ceil(users.length / TEAM_PAGE_SIZE))
-  const visibleUsers = users.slice((teamPage - 1) * TEAM_PAGE_SIZE, teamPage * TEAM_PAGE_SIZE)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -132,7 +131,7 @@ export default function PengaturanPage() {
   }
 
   return (
-    <div>
+    <div className="business-settings-page w-full min-w-0">
       <DashboardPageHeader
         title="Pengaturan Bisnis"
         description="Atur informasi dan preferensi bisnis Anda."
@@ -140,141 +139,36 @@ export default function PengaturanPage() {
 
       {error && !businessModalOpen && <p className="mt-4 text-[13px] text-red-600">{error}</p>}
 
-      <div className="mt-6 grid w-full max-w-none gap-6 xl:grid-cols-2 xl:items-start">
-        {isLoading ? (
-          <FormSkeleton fields={['Nama Bisnis', 'Email Admin', 'Zona Waktu']} />
-        ) : (
-          <GlassPanel className="flex h-[390px] max-w-none flex-col">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[14px] font-semibold text-ink">Identitas Bisnis</p>
-                <p className="mt-1 text-[13px] text-muted">Informasi utama yang digunakan untuk bisnis Anda.</p>
-              </div>
-              <SubmitButton
-                type="button"
-                onClick={() => {
-                  setError(null)
-                  setSuccess(null)
-                  setBusinessModalOpen(true)
-                }}
-                className="shrink-0 px-4 py-2 text-[12px]"
-              >
-                Edit Identitas
-              </SubmitButton>
+      <div className="mt-10 space-y-10 [&>.settings-section+*]:border-t [&>.settings-section+*]:border-slate-200 [&>.settings-section+*]:pt-10 dark:[&>.settings-section+*]:border-slate-700">
+        <SettingsSection title="Identitas Bisnis" description="Informasi utama yang digunakan untuk bisnis Anda." aside={<GlassPanel><h3 className="text-sm font-semibold text-ink">Identitas bisnis Anda</h3><p className="mt-3 text-sm leading-6 text-body">Nama dan zona waktu digunakan untuk pengaturan bisnis. Email admin mengikuti akun yang sedang masuk.</p></GlassPanel>}>
+          {isLoading ? <FormSkeleton fields={['Nama Bisnis', 'Email Admin', 'Zona Waktu']} /> : <GlassPanel className="flex flex-col">
+            <div>
+            <SettingsRow title="Nama Bisnis"><span className="font-semibold">{name || '—'}</span></SettingsRow>
+            <SettingsRow title="Email Admin">{auth?.user.email || '—'}</SettingsRow>
+            <SettingsRow title="Zona Waktu"><div className="flex flex-wrap items-center gap-3 sm:justify-end"><span>{timezone}</span><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{business?.status === 'active' ? 'Aktif' : business?.status === 'inactive' ? 'Tidak aktif' : business?.status === 'suspended' ? 'Ditangguhkan' : 'Belum aktif'}</span></div></SettingsRow>
             </div>
-            <div className="flex flex-1 flex-col justify-between">
-              <div className="space-y-3">
-                <div className="rounded-lg bg-white/40 px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Nama Bisnis</p>
-                  <p className="mt-1 truncate text-[14px] font-semibold text-ink">{name || '—'}</p>
-                </div>
-                <div className="rounded-lg bg-white/40 px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Email Admin</p>
-                  <p className="mt-1 truncate text-[14px] text-body">{auth?.user.email || '—'}</p>
-                </div>
-                <div className="flex items-center justify-between rounded-lg bg-white/40 px-4 py-3">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Zona Waktu</p>
-                    <p className="mt-1 text-[14px] text-body">{timezone}</p>
-                  </div>
-                  <p className="text-[12px] text-muted">
-                    Status: <span className="font-semibold text-emerald-700">{business?.status}</span>
-                  </p>
-                </div>
-              </div>
+            <footer className="pt-6"><div className="flex justify-end border-t border-slate-200 pt-4 dark:border-slate-700"><SubmitButton type="button" onClick={() => { setError(null); setSuccess(null); setBusinessModalOpen(true) }} className="px-4 py-2 text-xs">Edit Identitas</SubmitButton></div></footer>
+            {success && <p role="status" className="mt-4 text-sm text-emerald-700 dark:text-emerald-200">{success}</p>}
+          </GlassPanel>}
+        </SettingsSection>
 
-              <div className="pt-4">
-                {success && <p className="truncate text-[12px] text-emerald-700">{success}</p>}
-              </div>
-            </div>
-          </GlassPanel>
-        )}
+        {auth?.user.role === 'admin' && !isLoading && <SettingsSection title="Tim Bisnis" description="Anggota yang terhubung ke bisnis ini." aside={<GlassPanel><h3 className="text-sm font-semibold text-ink">Akses tim</h3><p className="mt-3 text-sm leading-6 text-body">Tambahkan anggota dengan peran Sales atau Finance sesuai tanggung jawabnya. Akun staf dapat digunakan untuk login setelah dibuat.</p></GlassPanel>}>
+          <TeamMembersCard members={users} notice={staffSuccess} onAdd={() => { setStaffError(null); setStaffSuccess(null); setStaffModalOpen(true) }} />
+        </SettingsSection>}
 
-        {auth?.user.role === 'admin' && !isLoading && (
-          <GlassPanel className="flex h-[390px] max-w-none flex-col">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[14px] font-semibold text-ink">Tim Bisnis</p>
-                <p className="mt-1 text-[13px] text-muted">Anggota yang terhubung ke bisnis ini.</p>
-              </div>
-              <SubmitButton type="button" onClick={() => {
-                setStaffError(null)
-                setStaffSuccess(null)
-                setStaffModalOpen(true)
-              }} className="shrink-0 px-4 py-2 text-[12px]">
-                + Tambah Anggota
-              </SubmitButton>
-            </div>
+        {!isLoading && <SettingsSection title="Tampilan Invoice" description="Atur logo, warna, alamat, dan catatan pada invoice bisnis Anda." aside={<GlassPanel><h3 className="text-sm font-semibold text-ink">Identitas pada invoice</h3><p className="mt-3 text-sm leading-6 text-body">Sesuaikan tampilan invoice dengan identitas bisnis Anda melalui halaman kustomisasi.</p></GlassPanel>}>
+          <Link to="/dashboard/pengaturan/invoice" className="glass flex w-full flex-wrap items-center justify-between gap-4 rounded-2xl px-6 py-4 transition-colors hover:bg-white/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand dark:hover:bg-white/10">
+            <div className="flex min-w-0 flex-1 items-center gap-4"><span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand dark:text-blue-300"><FileText size={21} aria-hidden="true" /></span><div className="min-w-0"><p className="text-sm font-semibold text-ink">Tampilan Invoice</p><p className="mt-1 text-sm leading-6 text-body">Atur logo, warna, alamat, dan catatan pada invoice bisnis Anda.</p></div></div>
+            <div className="flex items-center gap-4"><div aria-label="Preview identitas" className="hidden items-center gap-2 sm:flex"><span className="size-3 rounded-full bg-brand" /><span className="size-3 rounded-full bg-amber" /><span className="size-3 rounded-full bg-violet" /><span className="sr-only">Preview identitas</span></div><span className="hidden text-sm font-semibold text-brand dark:text-blue-300 sm:inline">Kustomisasi</span><ArrowRight className="text-brand dark:text-blue-300" size={18} aria-hidden="true" /></div>
+          </Link>
+        </SettingsSection>}
 
-            <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-hidden">
-              {visibleUsers.map((user) => (
-                <div key={user.id} className="flex h-14 items-center justify-between gap-3 rounded-lg bg-white/40 px-4">
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-semibold text-ink">{user.name}</p>
-                    <p className="truncate text-[12px] text-muted">{user.email}</p>
-                  </div>
-                  <span className="shrink-0 rounded-md bg-brand/10 px-2.5 py-1 text-[11px] font-semibold text-brand">
-                    {roleLabel[user.role]}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 flex min-h-8 items-center justify-between gap-3">
-              <p className="text-[12px] text-muted">{users.length} anggota</p>
-              {totalTeamPages > 1 && (
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: totalTeamPages }, (_, index) => index + 1).map((pageNumber) => (
-                    <button
-                      key={pageNumber}
-                      type="button"
-                      onClick={() => setTeamPage(pageNumber)}
-                      className={`h-7 min-w-7 rounded-md px-2 text-[12px] font-semibold transition-colors ${
-                        pageNumber === teamPage ? 'bg-brand text-white' : 'text-muted hover:bg-brand/10 hover:text-brand'
-                      }`}
-                    >
-                      {pageNumber}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {staffSuccess && <p className="mt-2 truncate text-[12px] text-emerald-700">{staffSuccess}</p>}
-          </GlassPanel>
-        )}
+        <div ref={billingRef} id="langganan-tagihan" className="scroll-mt-6 border-t border-slate-200 pt-10 dark:border-slate-700">
+          <SettingsSection title="Langganan &amp; Tagihan" description="Langganan bisnis Anda untuk menggunakan PayLanggan." aside={<GlassPanel><h3 className="text-sm font-semibold text-ink">Perpanjangan langganan</h3><p className="mt-3 text-sm leading-6 text-body">Periksa status pembayaran otomatis dan riwayat tagihan di sini. Menghentikan perpanjangan tetap mempertahankan periode yang sudah dibayar hingga tanggal berakhir.</p></GlassPanel>}>
+            <PlatformBillingSection />
+          </SettingsSection>
+        </div>
       </div>
-
-      {!isLoading && (
-        <Link
-          to="/dashboard/pengaturan/invoice"
-          className="glass mt-6 flex min-h-[150px] w-full max-w-none items-center justify-between gap-6 rounded-2xl p-6 transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/60 dark:hover:bg-white/10"
-        >
-          <div className="flex min-w-0 items-center gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
-              <FileText size={21} />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[14px] font-semibold text-ink">Tampilan Invoice</p>
-              <p className="mt-1 truncate text-[13px] text-muted">
-                Atur logo, warna, alamat, dan catatan pada invoice bisnis Anda.
-              </p>
-            </div>
-          </div>
-          <div className="hidden shrink-0 items-center gap-5 sm:flex">
-            <div className="flex items-center gap-2 rounded-lg border border-white/50 bg-white/35 px-3 py-2">
-              <span className="h-3 w-3 rounded-sm bg-brand" />
-              <span className="h-3 w-3 rounded-sm bg-amber" />
-              <span className="h-3 w-3 rounded-sm bg-violet" />
-              <span className="ml-1 text-[11px] font-medium text-muted">Preview identitas</span>
-            </div>
-            <span className="flex items-center gap-2 text-[13px] font-semibold text-brand">
-              Kustomisasi <ArrowRight size={16} />
-            </span>
-          </div>
-          <ArrowRight className="shrink-0 text-brand sm:hidden" size={18} />
-        </Link>
-      )}
 
       <Modal open={businessModalOpen} onClose={() => setBusinessModalOpen(false)} title="Edit Identitas Bisnis">
         <form onSubmit={handleSubmit} className="space-y-5">

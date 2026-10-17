@@ -1,11 +1,13 @@
 package payment
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"pay-langgan/internal/middlewares"
@@ -41,11 +43,62 @@ func (h *CheckoutHandler) CreateLink(c echo.Context) error {
 }
 
 func (h *CheckoutHandler) Get(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
 	checkout, err := h.service.Get(c.Request().Context(), c.Param("token"))
 	if err != nil {
 		return checkoutError(c, err)
 	}
 	return utils.Success(c, "Checkout retrieved", checkout)
+}
+
+func (h *CheckoutHandler) Cancel(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	checkout, err := h.service.Cancel(c.Request().Context(), c.Param("token"))
+	if err != nil {
+		return checkoutError(c, err)
+	}
+	return utils.Success(c, "Checkout cancelled", checkout)
+}
+
+func (h *CheckoutHandler) ListWebhookLogs(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	page := 1
+	if value := c.QueryParam("page"); value != "" {
+		var err error
+		page, err = strconv.Atoi(value)
+		if err != nil {
+			return utils.BadRequest(c, "invalid page")
+		}
+	}
+	logs, err := h.service.ListWebhookLogs(c.Request().Context(), middlewares.GetBusinessID(c), c.QueryParam("provider"), c.QueryParam("status"), page)
+	if err != nil {
+		return checkoutError(c, err)
+	}
+	return utils.Success(c, "Webhook logs retrieved", logs)
+}
+
+func (h *CheckoutHandler) NewWebhookCount(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	count, err := h.service.NewWebhookCount(c.Request().Context(), middlewares.GetBusinessID(c), middlewares.GetUserID(c))
+	if err != nil {
+		return checkoutError(c, err)
+	}
+	return utils.Success(c, "New webhook count", count)
+}
+
+func (h *CheckoutHandler) MarkWebhookLogsSeen(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	var request struct {
+		SeenThrough time.Time `json:"seen_through"`
+	}
+	if err := c.Bind(&request); err != nil {
+		return utils.BadRequest(c, "invalid seen timestamp")
+	}
+	count, err := h.service.MarkWebhookLogsSeen(c.Request().Context(), middlewares.GetBusinessID(c), middlewares.GetUserID(c), request.SeenThrough)
+	if err != nil {
+		return checkoutError(c, err)
+	}
+	return utils.Success(c, "Webhook logs marked read", count)
 }
 
 func (h *CheckoutHandler) Start(c echo.Context) error {
@@ -58,7 +111,54 @@ func (h *CheckoutHandler) Start(c echo.Context) error {
 	if err != nil {
 		return checkoutError(c, err)
 	}
-	return utils.Success(c, "Xendit checkout started", checkout)
+	return utils.Success(c, "Checkout started", checkout)
+}
+
+func (h *CheckoutHandler) ChargeMidtransCard(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 4096)
+	var request models.MidtransCardCheckoutRequest
+	decoder := json.NewDecoder(c.Request().Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return utils.BadRequest(c, "invalid card token request")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return utils.BadRequest(c, "invalid card token request")
+	}
+	result, err := h.service.ChargeMidtransCard(c.Request().Context(), c.Param("token"), request)
+	if err != nil {
+		return checkoutError(c, err)
+	}
+	return utils.Success(c, "Card payment started", result)
+}
+
+func (h *CheckoutHandler) VerifyMidtransCard(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	checkout, err := h.service.VerifyMidtransCard(c.Request().Context(), c.Param("token"))
+	if err != nil {
+		return checkoutError(c, err)
+	}
+	return utils.Success(c, "Payment status verified", checkout)
+}
+
+func (h *CheckoutHandler) RegisterMidtransTrialCard(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 1024)
+	var request paymentservice.MidtransTrialRegistration
+	decoder := json.NewDecoder(c.Request().Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return utils.BadRequest(c, "invalid registration receipt")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return utils.BadRequest(c, "invalid registration receipt")
+	}
+	result, err := h.service.RegisterMidtransTrialCard(c.Request().Context(), c.Param("token"), request)
+	if err != nil {
+		return checkoutError(c, err)
+	}
+	return utils.Success(c, "Card registration recorded", result)
 }
 
 func (h *CheckoutHandler) XenditWebhook(c echo.Context) error {
