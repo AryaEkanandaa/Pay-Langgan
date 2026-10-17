@@ -34,7 +34,7 @@ func TestInitialBillingSchedule(t *testing.T) {
 				if got.status != "trial" || got.trialEndsAt == nil || !got.trialEndsAt.Equal(want) || got.invoiceDueDate != nil {
 					t.Fatalf("trial must defer invoice until trial end: %+v", got)
 				}
-			} else if got.status != "active" || got.trialEndsAt != nil || got.invoiceDueDate == nil || !got.invoiceDueDate.Equal(start) {
+			} else if got.status != "pending" || got.trialEndsAt != nil || got.invoiceDueDate == nil || !got.invoiceDueDate.Equal(start) {
 				t.Fatalf("non-trial must invoice now and schedule a later period: %+v", got)
 			}
 		})

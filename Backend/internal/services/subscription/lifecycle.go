@@ -22,7 +22,7 @@ func (s *SubscriptionService) Cancel(id int, businessID string, userID int, reas
 		return nil, utils.ErrNotFound
 	}
 
-	if sub.Status != "trial" && sub.Status != "active" && sub.Status != "paused" {
+	if sub.Status != "pending" && sub.Status != "trial" && sub.Status != "active" && sub.Status != "paused" {
 		return nil, fmt.Errorf("cannot cancel subscription with status %s", sub.Status)
 	}
 

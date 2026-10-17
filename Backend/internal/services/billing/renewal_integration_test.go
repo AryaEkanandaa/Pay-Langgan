@@ -188,11 +188,24 @@ func TestRenewalPostgres(t *testing.T) {
 		if got.InvoicesCreated != 1 || got.LegacySkipped != 1 || len(got.Failures) > 0 {
 			t.Fatalf("%+v", got)
 		}
-		if count(t, `SELECT count(*) FROM subscriptions WHERE status='trial'`) != 0 {
-			t.Fatal("trial not activated")
+		if count(t, `SELECT count(*) FROM subscriptions WHERE status='pending'`) != 1 {
+			t.Fatal("expired trial must wait for first payment")
 		}
 		if count(t, `SELECT count(*) FROM invoices`) != 1 {
 			t.Fatal("billed excluded subscriptions")
+		}
+		if run(t, 10).InvoicesCreated != 0 {
+			t.Fatal("unpaid first trial invoice generated more periods")
+		}
+		var invoiceID int
+		if err := db.Get(&invoiceID, `SELECT id FROM invoices LIMIT 1`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := billing.NewInvoiceService(db, billingrepo.NewInvoiceRepository(db)).MarkPaid(invoiceID, "test"); err != nil {
+			t.Fatal(err)
+		}
+		if count(t, `SELECT count(*) FROM subscriptions WHERE status='active' AND billing_anchor IS NOT NULL`) != 1 {
+			t.Fatal("trial first payment did not activate")
 		}
 		reset(t)
 		newSub(t, "active", "2026-01-31", "2026-02-28", false)

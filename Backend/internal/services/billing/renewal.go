@@ -71,7 +71,7 @@ func (s *RenewalService) renewOne(ctx context.Context, at time.Time, skipped []i
 		return 0, false, err
 	}
 	defer tx.Rollback()
-	query := `SELECT id, next_billing_date, billing_anchor, billing_cycle FROM subscriptions
+	query := `SELECT id, status, next_billing_date, billing_anchor, billing_cycle FROM subscriptions
   WHERE status IN ('active','trial') AND next_billing_date <= ? AND billing_anchor IS NOT NULL`
 	args := []interface{}{at}
 	if len(skipped) > 0 {
@@ -84,6 +84,7 @@ func (s *RenewalService) renewOne(ctx context.Context, at time.Time, skipped []i
 		return 0, false, err
 	}
 	var sub struct {
+		Status string    `db:"status"`
 		ID     int       `db:"id"`
 		Start  time.Time `db:"next_billing_date"`
 		Anchor time.Time `db:"billing_anchor"`
@@ -104,7 +105,15 @@ func (s *RenewalService) renewOne(ctx context.Context, at time.Time, skipped []i
 	if err != nil {
 		return sub.ID, false, err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE subscriptions SET status = 'active', next_billing_date = $2 WHERE id = $1`, sub.ID, end)
+	// Trial orders have no invoice at registration. Attach their first bill for order status/retries.
+	if _, err = tx.ExecContext(ctx, `UPDATE merchant_orders SET invoice_id=$2 WHERE subscription_id=$1 AND invoice_id IS NULL`, sub.ID, invoice.ID); err != nil {
+		return sub.ID, false, err
+	}
+	status := "active"
+	if sub.Status == "trial" && invoice.Status != "paid" {
+		status = "pending"
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE subscriptions SET status = $3, next_billing_date = $2 WHERE id = $1`, sub.ID, end, status)
 	if err != nil {
 		return sub.ID, false, err
 	}

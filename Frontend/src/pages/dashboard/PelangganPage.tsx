@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import DashboardPageHeader from '../../components/dashboard/DashboardPageHeader'
 import TableSkeleton from '../../components/ui/skeletons/TableSkeleton'
 import SubmitButton from '../../components/ui/SubmitButton'
+import Select from '../../components/ui/Select'
+import StatusBadge from '../../components/ui/StatusBadge'
 import { useAuth } from '../../context/AuthContext'
 import {
   listCustomers,
@@ -10,10 +12,17 @@ import {
   deleteCustomer,
   ApiError,
   type Customer,
+  type CustomerStatus,
 } from '../../lib/api'
 import CustomerFormModal from './CustomerFormModal'
 
 const PAGE_SIZE = 10
+const customerStatus: Record<CustomerStatus, { label: string; tone: 'success' | 'warning' | 'neutral' }> = {
+  active: { label: 'Aktif', tone: 'success' },
+  trial: { label: 'Trial', tone: 'warning' },
+  prospect: { label: 'Calon pelanggan', tone: 'neutral' },
+  inactive: { label: 'Tidak aktif', tone: 'neutral' },
+}
 
 export default function PelangganPage() {
   const { auth } = useAuth()
@@ -23,14 +32,17 @@ export default function PelangganPage() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<CustomerStatus | ''>('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const loadVersion = useRef(0)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
 
   const loadCustomers = useCallback(async () => {
     if (!token) return
+    const version = ++loadVersion.current
     setIsLoading(true)
     setError(null)
     try {
@@ -38,15 +50,18 @@ export default function PelangganPage() {
         page,
         limit: PAGE_SIZE,
         search: search || undefined,
+        status: status || undefined,
       })
-      setCustomers(result.items)
-      setTotal(result.total)
+      if (version === loadVersion.current) {
+        setCustomers(result.items)
+        setTotal(result.total)
+      }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Gagal memuat data pelanggan.')
+      if (version === loadVersion.current) setError(err instanceof ApiError ? err.message : 'Gagal memuat data pelanggan.')
     } finally {
-      setIsLoading(false)
+      if (version === loadVersion.current) setIsLoading(false)
     }
-  }, [token, page, search])
+  }, [token, page, search, status])
 
   useEffect(() => {
     loadCustomers()
@@ -104,7 +119,9 @@ export default function PelangganPage() {
         </SubmitButton>
       </div>
 
+      <div className="mb-4 flex flex-wrap items-end gap-4">
       <input
+        aria-label="Cari nama atau email pelanggan"
         type="search"
         placeholder="Cari nama atau email..."
         value={search}
@@ -112,19 +129,30 @@ export default function PelangganPage() {
           setPage(1)
           setSearch(event.target.value)
         }}
-        className="mb-4 w-full max-w-xs rounded-xl border border-white/60 bg-white/50 px-4 py-2.5 text-[14px] text-ink outline-none backdrop-blur-xl transition-colors placeholder:text-muted focus:border-brand/50 focus:bg-white/70 focus:ring-2 focus:ring-brand/30"
+        className="w-full max-w-xs rounded-xl border border-white/60 bg-white/50 px-4 py-2.5 text-[14px] text-ink outline-none backdrop-blur-xl transition-colors placeholder:text-muted focus:border-brand/50 focus:bg-white/70 focus:ring-2 focus:ring-brand/30"
       />
+      <div className="w-full sm:w-56">
+        <Select label="Status pelanggan" value={status} onChange={(event) => { setStatus(event.target.value as CustomerStatus | ''); setPage(1) }}>
+          <option value="">Semua pelanggan</option>
+          <option value="active">Pelanggan aktif</option>
+          <option value="trial">Trial</option>
+          <option value="prospect">Calon pelanggan</option>
+          <option value="inactive">Tidak aktif</option>
+        </Select>
+      </div>
+      </div>
+      <p className="mb-4 text-[13px] text-body">Calon pelanggan belum memiliki langganan aktif. Trial ditampilkan terpisah dan belum termasuk MRR.</p>
 
       {error && <p className="mb-4 text-[13px] text-red-600">{error}</p>}
 
       {isLoading ? (
-        <TableSkeleton columns={['Nama', 'Email', 'Kontak', 'Terdaftar', '']} />
+        <TableSkeleton columns={['Nama', 'Email', 'Kontak', 'Status', 'Terdaftar', '']} />
       ) : customers.length === 0 ? (
         <div className="glass flex min-h-[200px] flex-col items-center justify-center rounded-2xl text-center">
           <p className="text-[14px] font-medium text-body">
-            {search ? 'Tidak ada pelanggan yang cocok.' : 'Belum ada pelanggan.'}
+            {search || status ? 'Tidak ada pelanggan yang cocok dengan pencarian atau filter.' : 'Belum ada pelanggan.'}
           </p>
-          {!search && (
+          {!search && !status && (
             <button
               type="button"
               onClick={openCreateModal}
@@ -150,6 +178,9 @@ export default function PelangganPage() {
                     Kontak
                   </th>
                   <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    Status
+                  </th>
+                  <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted">
                     Terdaftar
                   </th>
                   <th className="px-5 py-3" />
@@ -161,6 +192,7 @@ export default function PelangganPage() {
                     <td className="px-5 py-4 font-medium text-ink">{customer.name}</td>
                     <td className="px-5 py-4 text-body">{customer.email || '—'}</td>
                     <td className="px-5 py-4 text-body">{customer.contact || '—'}</td>
+                    <td className="px-5 py-4"><StatusBadge tone={customerStatus[customer.status ?? 'prospect'].tone}>{customerStatus[customer.status ?? 'prospect'].label}</StatusBadge></td>
                     <td className="px-5 py-4 text-body">
                       {new Date(customer.created_at).toLocaleDateString('id-ID')}
                     </td>

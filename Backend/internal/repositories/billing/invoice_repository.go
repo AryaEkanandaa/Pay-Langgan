@@ -7,6 +7,7 @@ import (
 
 	"pay-langgan/internal/database"
 	"pay-langgan/internal/models"
+	"pay-langgan/internal/repositories/checkoutstate"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -63,7 +64,7 @@ func (r *InvoiceRepository) FindAllByBusinessID(businessID string, page, limit i
 	}
 
 	offset := (page - 1) * limit
-	query := `SELECT i.id, i.subscription_id, i.invoice_number, i.amount, i.status, i.due_date, i.period_start, i.period_end, i.paid_at, i.created_at,
+	query := `SELECT CASE WHEN i.status='pending' THEN ` + checkoutstate.InvoiceSQL("i.id") + ` ELSE '' END AS checkout_status, i.id, i.subscription_id, i.invoice_number, i.amount, i.status, i.due_date, i.period_start, i.period_end, i.paid_at, i.created_at,
 		c.id AS customer_id, c.name AS customer_name, c.email AS customer_email, pl.name AS plan_name ` + baseWhere +
 		fmt.Sprintf(" ORDER BY i.created_at DESC, i.id DESC LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
 	queryArgs := append(args, limit, offset)
@@ -76,7 +77,7 @@ func (r *InvoiceRepository) FindAllByBusinessID(businessID string, page, limit i
 }
 
 func (r *InvoiceRepository) FindByIDAndBusinessID(id int, businessID string) (*models.InvoiceListItem, error) {
-	query := `SELECT i.id, i.subscription_id, i.invoice_number, i.amount, i.status, i.due_date, i.period_start, i.period_end, i.paid_at, i.created_at,
+	query := `SELECT CASE WHEN i.status='pending' THEN ` + checkoutstate.InvoiceSQL("i.id") + ` ELSE '' END AS checkout_status, i.id, i.subscription_id, i.invoice_number, i.amount, i.status, i.due_date, i.period_start, i.period_end, i.paid_at, i.created_at,
 		c.id AS customer_id, c.name AS customer_name, c.email AS customer_email, pl.name AS plan_name ` + invoiceFromBusiness + ` AND i.id = $2`
 	var invoice models.InvoiceListItem
 	if err := r.db.Get(&invoice, query, businessID, id); err != nil {

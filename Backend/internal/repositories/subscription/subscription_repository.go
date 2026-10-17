@@ -7,6 +7,7 @@ import (
 
 	"pay-langgan/internal/database"
 	"pay-langgan/internal/models"
+	"pay-langgan/internal/repositories/checkoutstate"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -44,7 +45,8 @@ func (r *SubscriptionRepository) FindAllByBusinessID(businessID string, page, li
 	}
 
 	offset := (page - 1) * limit
-	dataQuery := fmt.Sprintf("SELECT s.id, s.customer_id, s.plan_id, s.status, s.start_date, s.billing_anchor, s.billing_cycle, s.next_billing_date, s.end_date, s.trial_ends_at, s.meta, s.created_at %s ORDER BY s.id DESC LIMIT $%d OFFSET $%d", baseWhere, argIdx, argIdx+1)
+	checkoutStatus := "CASE WHEN s.status='pending' THEN " + checkoutstate.InvoiceSQL("(SELECT i.id FROM invoices i WHERE i.subscription_id=s.id ORDER BY i.id DESC LIMIT 1)") + " ELSE '' END AS checkout_status, "
+	dataQuery := fmt.Sprintf("SELECT %ss.id, s.customer_id, s.plan_id, s.status, s.start_date, s.billing_anchor, s.billing_cycle, s.next_billing_date, s.end_date, s.trial_ends_at, s.meta, s.created_at %s ORDER BY s.id DESC LIMIT $%d OFFSET $%d", checkoutStatus, baseWhere, argIdx, argIdx+1)
 	dataArgs := append(args, limit, offset)
 
 	var subscriptions []models.Subscription

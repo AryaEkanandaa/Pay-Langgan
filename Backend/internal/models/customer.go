@@ -5,6 +5,7 @@ import (
 )
 
 type Customer struct {
+	Status     string    `db:"status" json:"status,omitempty"`
 	ID         int       `db:"id" json:"id"`
 	BusinessID string    `db:"business_id" json:"business_id"`
 	Name       string    `db:"name" json:"name"`

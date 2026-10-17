@@ -31,7 +31,7 @@ func (h *SubscriptionHandler) List(c echo.Context) error {
 	status := c.QueryParam("status")
 	search := c.QueryParam("search")
 
-	if status != "" && status != "trial" && status != "active" && status != "paused" && status != "cancelled" {
+	if status != "" && status != "pending" && status != "trial" && status != "active" && status != "paused" && status != "cancelled" {
 		return utils.BadRequest(c, "invalid status filter")
 	}
 

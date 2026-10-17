@@ -35,7 +35,7 @@ func initialBillingSchedule(start time.Time, cycle string, trialDays int) (billi
 		return billingSchedule{}, err
 	}
 	return billingSchedule{
-		status:          "active",
+		status:          "pending",
 		nextBillingDate: next,
 		invoiceDueDate:  &start,
 	}, nil

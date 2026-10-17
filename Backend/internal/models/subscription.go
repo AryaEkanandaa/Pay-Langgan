@@ -5,6 +5,7 @@ import (
 )
 
 type Subscription struct {
+	CheckoutStatus  string     `db:"checkout_status" json:"checkout_status,omitempty"`
 	BillingAnchor   *time.Time `db:"billing_anchor" json:"billing_anchor"`
 	BillingCycle    *string    `db:"billing_cycle" json:"billing_cycle"`
 	ID              int        `db:"id" json:"id"`

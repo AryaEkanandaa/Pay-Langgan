@@ -6,6 +6,7 @@ import (
 
 	"pay-langgan/internal/database"
 	"pay-langgan/internal/models"
+	"pay-langgan/internal/utils"
 )
 
 type CustomerRepository struct {
@@ -16,36 +17,39 @@ func NewCustomerRepository(db *database.DB) *CustomerRepository {
 	return &CustomerRepository{db: db}
 }
 
-func (r *CustomerRepository) FindAllByBusinessID(businessID string, page, limit int, search string) ([]models.Customer, int, error) {
-	countQuery := `SELECT COUNT(*) FROM customers WHERE business_id = $1`
+const customerStatusSQL = `CASE
+ WHEN EXISTS (SELECT 1 FROM subscriptions s WHERE s.customer_id=c.id AND s.status='active') THEN 'active'
+ WHEN EXISTS (SELECT 1 FROM subscriptions s WHERE s.customer_id=c.id AND s.status='trial') THEN 'trial'
+ WHEN EXISTS (SELECT 1 FROM subscriptions s WHERE s.customer_id=c.id AND s.status='pending')
+ OR NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.customer_id=c.id) THEN 'prospect'
+ ELSE 'inactive' END`
+
+func (r *CustomerRepository) FindAllByBusinessID(businessID string, page, limit int, search string, statuses ...string) ([]models.Customer, int, error) {
+	where := ` FROM customers c WHERE c.business_id = $1`
 	args := []interface{}{businessID}
 	argIdx := 2
 
 	if search != "" {
-		countQuery += fmt.Sprintf(" AND (name ILIKE '%%%%' || $%d || '%%%%' OR COALESCE(email, '') ILIKE '%%%%' || $%d || '%%%%')", argIdx, argIdx+1)
+		where += fmt.Sprintf(" AND (c.name ILIKE '%%%%' || $%d || '%%%%' OR COALESCE(c.email, '') ILIKE '%%%%' || $%d || '%%%%')", argIdx, argIdx+1)
 		args = append(args, search, search)
 		argIdx += 2
 	}
+	if len(statuses) > 0 && statuses[0] != "" {
+		where += fmt.Sprintf(" AND (%s)=$%d", customerStatusSQL, argIdx)
+		args = append(args, statuses[0])
+		argIdx++
+	}
 
 	var total int
-	err := r.db.Get(&total, countQuery, args...)
+	err := r.db.Get(&total, "SELECT COUNT(*)"+where, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count customers: %w", err)
 	}
 
 	offset := (page - 1) * limit
-	dataQuery := `SELECT id, business_id, name, email, contact, meta, created_at
-		FROM customers WHERE business_id = $1`
-	dataArgs := []interface{}{businessID}
-	dataIdx := 2
-
-	if search != "" {
-		dataQuery += fmt.Sprintf(" AND (name ILIKE '%%%%' || $%d || '%%%%' OR COALESCE(email, '') ILIKE '%%%%' || $%d || '%%%%')", dataIdx, dataIdx+1)
-		dataArgs = append(dataArgs, search, search)
-		dataIdx += 2
-	}
-
-	dataQuery += fmt.Sprintf(" ORDER BY id DESC LIMIT $%d OFFSET $%d", dataIdx, dataIdx+1)
+	dataQuery := `SELECT c.id, c.business_id, c.name, c.email, c.contact, c.meta, c.created_at, ` + customerStatusSQL + ` AS status` + where
+	dataArgs := append([]interface{}{}, args...)
+	dataQuery += fmt.Sprintf(" ORDER BY c.id DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	dataArgs = append(dataArgs, limit, offset)
 
 	var customers []models.Customer
@@ -89,28 +93,66 @@ func (r *CustomerRepository) Create(customer *models.Customer) error {
 	if customer.Meta == nil {
 		customer.Meta = make(models.JSONMap)
 	}
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if customer.Email != nil && *customer.Email != "" {
+		if _, err = tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1),hashtext(lower(btrim($2))))`, customer.BusinessID, *customer.Email); err != nil {
+			return err
+		}
+		var exists bool
+		if err = tx.Get(&exists, `SELECT EXISTS(SELECT 1 FROM customers WHERE business_id=$1 AND lower(btrim(email))=lower(btrim($2)))`, customer.BusinessID, *customer.Email); err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("%w: pelanggan dengan email ini sudah terdaftar", utils.ErrConflict)
+		}
+	}
 	query := `INSERT INTO customers (business_id, name, email, contact, meta, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())
 		RETURNING id, created_at`
-	err := r.db.QueryRow(query, customer.BusinessID, customer.Name, customer.Email, customer.Contact, customer.Meta).
+	err = tx.QueryRow(query, customer.BusinessID, customer.Name, customer.Email, customer.Contact, customer.Meta).
 		Scan(&customer.ID, &customer.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create customer: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (r *CustomerRepository) Update(customer *models.Customer) error {
 	if customer.Meta == nil {
 		customer.Meta = make(models.JSONMap)
 	}
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if customer.Email != nil && *customer.Email != "" {
+		if _, err = tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1),hashtext(lower(btrim($2))))`, customer.BusinessID, *customer.Email); err != nil {
+			return err
+		}
+		var exists bool
+		// Existing duplicate records remain editable when their email is unchanged.
+		if err = tx.Get(&exists, `SELECT EXISTS(SELECT 1 FROM customers other WHERE other.business_id=$1
+ AND other.id<>$3 AND lower(btrim(other.email))=lower(btrim($2)))
+ AND EXISTS(SELECT 1 FROM customers own WHERE own.id=$3 AND own.business_id=$1
+ AND lower(btrim(own.email)) IS DISTINCT FROM lower(btrim($2)))`, customer.BusinessID, *customer.Email, customer.ID); err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("%w: pelanggan dengan email ini sudah terdaftar", utils.ErrConflict)
+		}
+	}
 	query := `UPDATE customers SET name = $1, email = $2, contact = $3, meta = $4
 		WHERE id = $5 AND business_id = $6`
-	_, err := r.db.Exec(query, customer.Name, customer.Email, customer.Contact, customer.Meta, customer.ID, customer.BusinessID)
+	_, err = tx.Exec(query, customer.Name, customer.Email, customer.Contact, customer.Meta, customer.ID, customer.BusinessID)
 	if err != nil {
 		return fmt.Errorf("update customer: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (r *CustomerRepository) DeleteByIDAndBusinessID(id int, businessID string) error {

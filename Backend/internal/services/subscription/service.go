@@ -197,8 +197,12 @@ func (s *SubscriptionService) Create(businessID string, userID int, req models.C
 	}
 
 	if schedule.invoiceDueDate != nil {
-		if _, err := billingsvc.IssueInvoice(tx, s.invoiceRepo, sub.ID, now, schedule.nextBillingDate, plan.BillingCycle, true); err != nil {
+		invoice, err := billingsvc.IssueInvoice(tx, s.invoiceRepo, sub.ID, now, schedule.nextBillingDate, plan.BillingCycle, true)
+		if err != nil {
 			return nil, fmt.Errorf("create initial invoice: %w", err)
+		}
+		if invoice.Status == "paid" {
+			sub.Status = "active"
 		}
 	}
 

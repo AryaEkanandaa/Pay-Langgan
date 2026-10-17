@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"context"
 	"fmt"
 
 	"pay-langgan/internal/database"
@@ -72,6 +73,12 @@ func (s *InvoiceService) MarkPaid(id int, businessID string) (*models.InvoiceDet
 			return nil, utils.ErrNotFound
 		}
 		return nil, fmt.Errorf("invoice is already paid or cancelled")
+	}
+	if err := ActivatePaidSubscription(context.Background(), tx, id); err != nil {
+		return nil, err
+	}
+	if err := QueuePaymentConfirmation(context.Background(), tx, id); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit mark invoice paid transaction: %w", err)

@@ -21,6 +21,7 @@ import { formatCurrency, subscriptionStatusLabel } from '../../lib/format'
 const PAGE_SIZE = 10
 
 const statusClass: Record<SubscriptionStatus, string> = {
+  pending: 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200',
   trial: 'bg-violet-100 text-violet-700',
   active: 'bg-emerald-100 text-emerald-700',
   paused: 'bg-amber-100 text-amber-700',
@@ -150,6 +151,7 @@ export default function LanggananPage() {
         >
           <option value="">Semua status</option>
           <option value="trial">Trial</option>
+          <option value="pending">Menunggu pembayaran</option>
           <option value="active">Aktif</option>
           <option value="paused">Dijeda</option>
           <option value="cancelled">Dibatalkan</option>
@@ -202,6 +204,9 @@ export default function LanggananPage() {
                       >
                         {subscriptionStatusLabel[subscription.status]}
                       </span>
+                      {subscription.status === 'pending' && subscription.checkout_status === 'expired' && (
+                        <p className="mt-2 text-xs font-medium text-body">Checkout kedaluwarsa. Pembayaran dapat dilanjutkan dari invoice atau portal.</p>
+                      )}
                     </td>
                     <td className="px-5 py-4 text-body">{formatDate(subscription.start_date)}</td>
                     <td className="px-5 py-4 text-body">
@@ -229,7 +234,7 @@ export default function LanggananPage() {
                             Jeda
                           </button>
                         )}
-                        {(subscription.status === 'active' || subscription.status === 'trial' || subscription.status === 'paused') && (
+                        {(subscription.status === 'pending' || subscription.status === 'active' || subscription.status === 'trial' || subscription.status === 'paused') && (
                           <button
                             type="button"
                             onClick={() => handleAction(subscription, 'cancel')}

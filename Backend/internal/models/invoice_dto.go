@@ -3,6 +3,7 @@ package models
 import "time"
 
 type InvoiceListItem struct {
+	CheckoutStatus string     `db:"checkout_status" json:"checkout_status,omitempty"`
 	PeriodStart    *time.Time `db:"period_start" json:"period_start"`
 	PeriodEnd      *time.Time `db:"period_end" json:"period_end"`
 	ID             int        `db:"id" json:"id"`

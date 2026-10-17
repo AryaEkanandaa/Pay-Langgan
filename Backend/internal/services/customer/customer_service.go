@@ -16,14 +16,21 @@ func NewCustomerService(customerRepo *customer.CustomerRepository) *CustomerServ
 	return &CustomerService{customerRepo: customerRepo}
 }
 
-func (s *CustomerService) GetAll(businessID string, page, limit int, search string) ([]models.Customer, int, error) {
+func (s *CustomerService) GetAll(businessID string, page, limit int, search string, statuses ...string) ([]models.Customer, int, error) {
 	if page < 1 {
 		page = 1
 	}
 	if limit < 1 || limit > 100 {
 		limit = 10
 	}
-	return s.customerRepo.FindAllByBusinessID(businessID, page, limit, search)
+	status := ""
+	if len(statuses) > 0 {
+		status = statuses[0]
+	}
+	if status != "" && status != "active" && status != "trial" && status != "prospect" && status != "inactive" {
+		return nil, 0, fmt.Errorf("%w: status pelanggan tidak valid", utils.ErrBadRequest)
+	}
+	return s.customerRepo.FindAllByBusinessID(businessID, page, limit, search, status)
 }
 
 func (s *CustomerService) GetByID(id int, businessID string) (*models.Customer, error) {
@@ -38,6 +45,10 @@ func (s *CustomerService) GetByID(id int, businessID string) (*models.Customer, 
 }
 
 func (s *CustomerService) Create(businessID string, req models.CreateCustomerRequest) (*models.Customer, error) {
+	if req.Email != nil {
+		email := strings.ToLower(strings.TrimSpace(*req.Email))
+		req.Email = &email
+	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", utils.ErrBadRequest)
@@ -78,7 +89,8 @@ func (s *CustomerService) Update(id int, businessID string, req models.UpdateCus
 		c.Name = req.Name
 	}
 	if req.Email != nil {
-		c.Email = req.Email
+		email := strings.ToLower(strings.TrimSpace(*req.Email))
+		c.Email = &email
 	}
 	if req.Contact != nil {
 		c.Contact = req.Contact

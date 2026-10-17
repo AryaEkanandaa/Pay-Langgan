@@ -19,6 +19,13 @@ type charge struct {
 	Cycle    string `db:"cycle"`
 }
 
+// QuoteCharge and PriceQuote share invoice rounding and discount rules with checkout previews.
+type QuoteCharge = charge
+
+func PriceQuote(charges []QuoteCharge, cycle string) ([]int64, int64, error) {
+	return priceCharges(charges, cycle)
+}
+
 const maxInvoiceCents int64 = 999999999999 // NUMERIC(12,2)
 
 // priceCharges works in hundredths, avoiding floating-point discount rounding.
@@ -124,6 +131,19 @@ func IssueInvoiceContext(ctx context.Context, tx *sqlx.Tx, repo *billingrepo.Inv
 	}
 	if total == 0 {
 		if err := tx.QueryRowContext(ctx, `UPDATE invoices SET paid_at = NOW() WHERE id = $1 RETURNING paid_at`, invoice.ID).Scan(&invoice.PaidAt); err != nil {
+			return nil, err
+		}
+	}
+	if total > 0 {
+		if err := queueInvoiceEmail(ctx, tx, invoice.ID, false); err != nil {
+			return nil, fmt.Errorf("queue invoice email: %w", err)
+		}
+	}
+	if total == 0 {
+		if err := ActivatePaidSubscription(ctx, tx, invoice.ID); err != nil {
+			return nil, err
+		}
+		if err := QueuePaymentConfirmation(ctx, tx, invoice.ID); err != nil {
 			return nil, err
 		}
 	}

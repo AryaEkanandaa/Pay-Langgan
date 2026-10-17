@@ -24,8 +24,11 @@ func (h *CustomerHandler) List(c echo.Context) error {
 	businessID := middlewares.GetBusinessID(c)
 	page, limit, search := utils.ParsePagination(c)
 
-	customers, total, err := h.customerService.GetAll(businessID, page, limit, search)
+	customers, total, err := h.customerService.GetAll(businessID, page, limit, search, c.QueryParam("status"))
 	if err != nil {
+		if errors.Is(err, utils.ErrBadRequest) {
+			return utils.BadRequest(c, "Status pelanggan tidak valid.")
+		}
 		return utils.InternalError(c, "failed to retrieve customers")
 	}
 
@@ -62,6 +65,9 @@ func (h *CustomerHandler) Create(c echo.Context) error {
 
 	cust, err := h.customerService.Create(businessID, req)
 	if err != nil {
+		if errors.Is(err, utils.ErrConflict) {
+			return utils.Conflict(c, "Pelanggan dengan email ini sudah terdaftar. Gunakan data pelanggan yang ada.")
+		}
 		if errors.Is(err, utils.ErrBadRequest) {
 			return utils.BadRequest(c, err.Error())
 		}
@@ -85,6 +91,9 @@ func (h *CustomerHandler) Update(c echo.Context) error {
 
 	cust, err := h.customerService.Update(id, businessID, req)
 	if err != nil {
+		if errors.Is(err, utils.ErrConflict) {
+			return utils.Conflict(c, "Pelanggan dengan email ini sudah terdaftar. Gunakan data pelanggan yang ada.")
+		}
 		if errors.Is(err, utils.ErrNotFound) {
 			return utils.NotFound(c, "customer not found")
 		}
