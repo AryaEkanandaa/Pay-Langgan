@@ -14,6 +14,7 @@ import {
 } from '../../../lib/api'
 import { formatCurrency, billingCycleLabel } from '../../../lib/format'
 import AddOnFormModal from './AddOnFormModal'
+import StatusBadge from '../../../components/ui/StatusBadge'
 
 const PAGE_SIZE = 10
 
@@ -73,6 +74,7 @@ export default function AddOnsTab() {
   }
 
   async function handleSubmit(values: {
+    visible_in_checkout: boolean
     product_id: string
     name: string
     price: string
@@ -80,6 +82,7 @@ export default function AddOnsTab() {
   }) {
     if (!token) return
     const payload = {
+      visible_in_checkout: values.visible_in_checkout,
       product_id: Number(values.product_id),
       name: values.name,
       price: Number(values.price),
@@ -143,7 +146,7 @@ export default function AddOnsTab() {
       {error && <p className="mb-4 text-[13px] text-red-600">{error}</p>}
 
       {isLoading ? (
-        <TableSkeleton columns={['Nama', 'Produk', 'Harga', 'Siklus', '']} />
+        <TableSkeleton columns={['Nama', 'Produk', 'Harga', 'Siklus', 'Checkout', '']} />
       ) : addOns.length === 0 ? (
         <div className="glass flex min-h-[200px] flex-col items-center justify-center rounded-2xl text-center">
           <p className="text-[14px] font-medium text-body">
@@ -169,6 +172,7 @@ export default function AddOnsTab() {
                   <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted">Produk</th>
                   <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted">Harga</th>
                   <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted">Siklus</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted">Checkout</th>
                   <th className="px-5 py-3" />
                 </tr>
               </thead>
@@ -181,6 +185,7 @@ export default function AddOnsTab() {
                     <td className="px-5 py-4 text-body">
                       {billingCycleLabel[addOn.billing_cycle] ?? addOn.billing_cycle}
                     </td>
+                    <td className="px-5 py-4"><StatusBadge tone={addOn.visible_in_checkout ? 'success' : 'neutral'}>{addOn.visible_in_checkout ? 'Ditampilkan' : 'Disembunyikan'}</StatusBadge></td>
                     <td className="px-5 py-4 text-right">
                       <button
                         type="button"

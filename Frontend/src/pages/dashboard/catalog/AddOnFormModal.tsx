@@ -6,6 +6,7 @@ import SubmitButton from '../../../components/ui/SubmitButton'
 import type { AddOn, Product } from '../../../lib/api'
 
 interface AddOnFormValues {
+  visible_in_checkout: boolean
   product_id: string
   name: string
   price: string
@@ -22,6 +23,7 @@ interface AddOnFormModalProps {
 
 export default function AddOnFormModal({ open, onClose, onSubmit, addOn, products }: AddOnFormModalProps) {
   const [values, setValues] = useState<AddOnFormValues>({
+    visible_in_checkout: true,
     product_id: '',
     name: '',
     price: '',
@@ -33,6 +35,7 @@ export default function AddOnFormModal({ open, onClose, onSubmit, addOn, product
   useEffect(() => {
     if (open) {
       setValues({
+        visible_in_checkout: addOn?.visible_in_checkout ?? true,
         product_id: addOn ? String(addOn.product_id) : String(products[0]?.id ?? ''),
         name: addOn?.name ?? '',
         price: addOn ? String(addOn.price) : '',
@@ -68,6 +71,7 @@ export default function AddOnFormModal({ open, onClose, onSubmit, addOn, product
         <Select
           id="addon_product"
           label="Produk"
+          disabled={Boolean(addOn)}
           required
           value={values.product_id}
           onChange={(event) => setValues((v) => ({ ...v, product_id: event.target.value }))}
@@ -81,6 +85,7 @@ export default function AddOnFormModal({ open, onClose, onSubmit, addOn, product
             </option>
           ))}
         </Select>
+        <p className="text-sm text-body">Add-on tersedia untuk plan pada produk dan siklus tagihan yang sama. Produk tidak dapat diubah setelah add-on dibuat.</p>
         <Input
           id="addon_name"
           label="Nama Add-on"
@@ -105,9 +110,22 @@ export default function AddOnFormModal({ open, onClose, onSubmit, addOn, product
         >
           <option value="monthly">Bulanan</option>
           <option value="yearly">Tahunan</option>
-          <option value="weekly">Mingguan</option>
-          <option value="daily">Harian</option>
         </Select>
+
+        <fieldset className="rounded-xl border border-border p-4">
+          <legend className="px-2 text-sm font-semibold text-ink">Tampilan pelanggan</legend>
+          <label className="flex cursor-pointer items-start gap-3 text-sm text-ink">
+            <input
+              type="checkbox"
+              checked={values.visible_in_checkout}
+              onChange={(event) => setValues((v) => ({ ...v, visible_in_checkout: event.target.checked }))}
+              aria-describedby="addon_visibility_help"
+              className="mt-0.5 size-4 shrink-0 accent-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            />
+            <span className="font-medium">Tampilkan di checkout</span>
+          </label>
+          <p id="addon_visibility_help" className="mt-2 text-sm text-body">Pelanggan dapat melihat dan memilih add-on ini pada langkah Paket. Jika dimatikan, add-on tetap tersedia untuk admin dan langganan yang sudah menggunakannya.</p>
+        </fieldset>
 
         {error && <p className="text-[13px] text-red-600">{error}</p>}
 
