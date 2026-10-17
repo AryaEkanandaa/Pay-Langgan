@@ -21,7 +21,7 @@ type AutopaySettings struct {
 	MaxAmount        int64     `db:"max_amount" json:"max_amount"`
 	EffectiveAt      time.Time `db:"effective_at" json:"effective_at"`
 	UpdatedAt        time.Time `db:"updated_at" json:"updated_at"`
-	UpdatedBy        int       `db:"updated_by" json:"updated_by"`
+	UpdatedBy        *int      `db:"updated_by" json:"updated_by,omitempty"`
 }
 
 type AutopayRequest struct {
@@ -82,7 +82,9 @@ func (s *CheckoutService) SetAutopay(ctx context.Context, id int, businessID str
 			return nil, fmt.Errorf("%w: autopay requires an active subscription with a billing schedule", utils.ErrConflict)
 		}
 		var valid bool
-		if err := tx.GetContext(ctx, &valid, `SELECT EXISTS(SELECT 1 FROM payment_methods WHERE id=$1 AND customer_id=$2 AND provider='xendit')`, r.PaymentMethodID, sub.CustomerID); err != nil {
+		if err := tx.GetContext(ctx, &valid, `SELECT EXISTS(SELECT 1 FROM payment_methods pm
+ JOIN customers c ON c.id=pm.customer_id JOIN business_payment_gateways bg ON bg.business_id=c.business_id AND bg.provider=pm.provider
+ WHERE pm.id=$1 AND pm.customer_id=$2 AND pm.provider IN ('xendit','midtrans'))`, r.PaymentMethodID, sub.CustomerID); err != nil {
 			return nil, err
 		}
 		if !valid {

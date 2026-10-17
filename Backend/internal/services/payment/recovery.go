@@ -26,6 +26,10 @@ func (s *CheckoutService) RunMaintenance(ctx context.Context, limit int) (Mainte
 	if limit < 1 || limit > 1000 {
 		return result, fmt.Errorf("payment batch limit must be 1..1000")
 	}
+	result.Failures += s.reconcileOpenTrialCards(ctx, limit)
+	if err := s.releaseExpiredTrialCards(ctx, s.db, limit); err != nil {
+		return result, err
+	}
 	if _, err := s.db.ExecContext(ctx, `WITH expired AS (SELECT bucket_key FROM checkout_rate_limits WHERE window_start<(NOW() AT TIME ZONE 'UTC')-INTERVAL '1 hour' ORDER BY window_start LIMIT $1)
  DELETE FROM checkout_rate_limits r USING expired WHERE r.bucket_key=expired.bucket_key`, limit*10); err != nil {
 		return result, err
@@ -141,6 +145,20 @@ func (s *CheckoutService) RecoverCheckout(ctx context.Context, id int64, session
 
 func (s *CheckoutService) reconcileRecord(ctx context.Context, record *models.CheckoutRecord, sessionID string) error {
 	if record.Provider == "midtrans" {
+		if record.CheckoutMode == "CORE" {
+			gateway, err := s.gatewayForBusiness(ctx, record.BusinessID)
+			if err != nil {
+				return err
+			}
+			if gateway == nil || gateway.Config.Provider != "midtrans" {
+				return fmt.Errorf("Midtrans gateway configuration changed")
+			}
+			transaction, err := s.midtransCardProvider(gateway).GetCardTransaction(ctx, record.ReferenceID)
+			if err != nil {
+				return err
+			}
+			return s.acceptMidtransCardTransaction(ctx, record, gateway, transaction)
+		}
 		if record.ProviderSessionID == nil || *record.ProviderSessionID != sessionID {
 			return fmt.Errorf("provider session identity conflict")
 		}
