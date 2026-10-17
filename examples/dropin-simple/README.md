@@ -13,10 +13,10 @@ Isi konfigurasi langsung di `index.html`: alamat skrip frontend, ID integrasi bi
 3. Dari folder utama proyek, jalankan server file statis bawaan Python:
 
    ```powershell
-   python -m http.server 4176 --directory .\examples\dropin-simple
+   python -m http.server 4177 --directory .\examples\dropin-simple
    ```
 
-4. Buka `http://localhost:4176` dan klik **Mulai berlangganan**.
+4. Buka `http://localhost:4177` dan klik tombol langganan. Port 4176 digunakan oleh frontend PayLanggan.
 
 Server file statis tetap diperlukan agar browser membuka halaman melalui HTTP. Ini bukan `server.mjs` aplikasi dan tidak memerlukan backend tambahan. Jangan membuka `index.html` langsung dengan `file://`.
 

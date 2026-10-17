@@ -21,7 +21,7 @@
   function open(options) {
     if (!options || typeof options.checkoutUrl !== 'string') throw new Error('checkoutUrl is required')
     var url = new URL(options.checkoutUrl)
-    if (url.origin !== checkoutOrigin || !/^\/checkout\/[A-Za-z0-9_-]+$/.test(url.pathname)) {
+    if (url.origin !== checkoutOrigin || !/^\/checkout\/[A-Za-z0-9_-]+$/.test(url.pathname) && url.pathname !== '/checkout/embed') {
       throw new Error('Invalid PayLanggan checkout URL')
     }
     close()
@@ -38,7 +38,7 @@
     button.type = 'button'
     button.className = 'pl-dropin-close'
     button.setAttribute('aria-label', 'Tutup pembayaran')
-    button.textContent = '×'
+    button.innerHTML = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
     var fullPage = document.createElement('a')
     fullPage.className = 'pl-dropin-full-page'
     fullPage.href = options.checkoutUrl
@@ -59,8 +59,31 @@
 
     function onMessage(event) {
       if (event.origin !== checkoutOrigin || event.source !== frame.contentWindow) return
+      if (event.data && event.data.type === 'paylanggan:checkout-link') {
+        try {
+          var next = new URL(event.data.checkoutUrl)
+          if (next.origin === checkoutOrigin && /^\/checkout\/[A-Za-z0-9_-]+$/.test(next.pathname)) {
+            fullPage.href = next.toString()
+            options.externalOrderId = event.data.externalOrderId
+            if (typeof options.onCheckoutLink === 'function') options.onCheckoutLink(next.toString(), event.data.externalOrderId)
+          }
+        } catch { /* Ignore invalid links. */ }
+        return
+      }
+      if (event.data && event.data.type === 'paylanggan:checkout-close') { close(); return }
+      if (event.data && event.data.type === 'paylanggan:checkout-cancelled') {
+        if (typeof options.onCancelled === 'function') options.onCancelled()
+        close()
+        return
+      }
+      if (event.data && event.data.type === 'paylanggan:checkout-status' && event.data.status === 'trial') {
+        var trialResult = { externalOrderId: event.data.externalOrderId || options.externalOrderId, trialEndsAt: event.data.trialEndsAt }
+        document.dispatchEvent(new CustomEvent('paylanggan:trial-started', { detail: trialResult }))
+        if (typeof options.onTrial === 'function') options.onTrial(trialResult)
+        return
+      }
       if (!event.data || event.data.type !== 'paylanggan:checkout-status' || event.data.status !== 'paid') return
-      if (typeof options.onPaid === 'function') options.onPaid()
+      if (typeof options.onPaid === 'function') options.onPaid(event.data)
     }
     function onKeydown(event) {
       if (event.key === 'Escape') close()
@@ -95,108 +118,84 @@
     if (api.protocol !== 'https:' && !(api.protocol === 'http:' && (api.hostname === 'localhost' || api.hostname === '127.0.0.1'))) {
       throw new Error('PayLanggan API must use HTTPS')
     }
-    var storageKey = 'paylanggan:embed:' + options.siteId + ':' + planId
+    var addOns = options.addOns || []
+    if (!Array.isArray(addOns) || addOns.length > 20) throw new Error('Invalid add-ons')
+    var couponCode = options.couponCode || ''
+    if (typeof couponCode !== 'string' || couponCode.length > 50) throw new Error('Invalid coupon code')
+    var storageKey = 'paylanggan:embed:' + options.siteId + ':' + planId + ':' + JSON.stringify(addOns) + ':' + couponCode
     function checkoutToken(value) {
       var url = new URL(value)
-      if (url.origin !== checkoutOrigin || !/^\/checkout\/[A-Za-z0-9_-]+$/.test(url.pathname)) throw new Error('Invalid PayLanggan checkout URL')
+      if (url.origin !== checkoutOrigin || !/^\/checkout\/[A-Za-z0-9_-]+$/.test(url.pathname) && url.pathname !== '/checkout/embed') throw new Error('Invalid PayLanggan checkout URL')
       return url.pathname.split('/')[2]
     }
     function displayOrder(order) {
       checkoutToken(order.checkout_url)
-      try { sessionStorage.setItem(storageKey, JSON.stringify(order)) } catch (_) { /* Storage may be unavailable. */ }
+      try { sessionStorage.setItem(storageKey, JSON.stringify(order)) } catch { /* Storage may be unavailable. */ }
       return open({
         checkoutUrl: order.checkout_url,
+        externalOrderId: order.external_order_id,
+        onTrial: function (result) {
+          try { sessionStorage.removeItem(storageKey) } catch {}
+          if (typeof options.onTrial === 'function') options.onTrial(result)
+        },
         onPaid: function () {
-          try { sessionStorage.removeItem(storageKey) } catch (_) {}
+          try { sessionStorage.removeItem(storageKey) } catch {}
           document.dispatchEvent(new CustomEvent('paylanggan:paid', { detail: { externalOrderId: order.external_order_id } }))
           if (typeof options.onPaid === 'function') options.onPaid(order.external_order_id)
         },
+        onCancelled: function () { try { sessionStorage.removeItem(storageKey) } catch {} },
         onClose: options.onClose,
       })
     }
     function showForm() {
-      close()
-      var overlay = document.createElement('div')
-      overlay.className = 'pl-dropin-overlay'
-      overlay.setAttribute('role', 'dialog')
-      overlay.setAttribute('aria-modal', 'true')
-      overlay.setAttribute('aria-label', 'Mulai pembayaran PayLanggan')
-      var panel = document.createElement('div')
-      panel.className = 'pl-embed-form-panel'
-      panel.innerHTML = '<header class="pl-embed-header"><span class="pl-embed-brand"><img class="pl-embed-logo" src="' + checkoutOrigin + '/paylanggan-logo.png" alt="">PayLanggan</span>' +
-        '<button class="pl-embed-close" type="button" aria-label="Tutup formulir"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg></button></header>' +
-        '<div class="pl-embed-intro"><span class="pl-embed-eyebrow">MULAI BERLANGGANAN</span>' +
-        '<h2>Lanjutkan langganan</h2><p>Lengkapi informasi kontak untuk melanjutkan ke pembayaran.</p></div>' +
-        '<form><label>Nama lengkap<input name="name" autocomplete="name" maxlength="100" placeholder="Nama Anda" required></label>' +
-        '<label>Alamat email<input name="email" type="email" autocomplete="email" maxlength="100" placeholder="nama@email.com" required></label>' +
-        '<label>Nomor ponsel<input name="mobile" type="tel" autocomplete="tel" placeholder="+628123456789" maxlength="20" required></label>' +
-        '<p class="pl-embed-error" role="alert"></p><button class="pl-embed-submit" type="submit">Lanjutkan ke pembayaran</button>' +
-        '<button class="pl-embed-cancel" type="button">Batal</button></form>'
-      var form = panel.querySelector('form')
-      var error = panel.querySelector('.pl-embed-error')
-      var submit = panel.querySelector('[type="submit"]')
-      panel.querySelector('.pl-embed-cancel').addEventListener('click', close)
-      panel.querySelector('.pl-embed-close').addEventListener('click', close)
-      overlay.appendChild(panel)
-      overlay.addEventListener('click', function (event) { if (event.target === overlay) close() })
-      var previousFocus = document.activeElement
-      var previousOverflow = document.body.style.overflow
-      function onKeydown(event) { if (event.key === 'Escape') close() }
-      function onMessage() {}
-      window.addEventListener('message', onMessage)
-      document.addEventListener('keydown', onKeydown)
-      document.body.style.overflow = 'hidden'
-      document.body.appendChild(overlay)
-      // Switching from the contact form to checkout calls close(); it is not a user cancellation.
-      active = { overlay: overlay, onMessage: onMessage, onKeydown: onKeydown, previousFocus: previousFocus, previousOverflow: previousOverflow }
-      form.querySelector('input').focus()
-      form.addEventListener('submit', function (event) {
-        event.preventDefault()
-        if (submit.disabled) return
-        submit.disabled = true
-        submit.textContent = 'Menyiapkan pembayaran...'
-        error.textContent = ''
-        fetch(new URL('/api/v1/embed/sites/' + encodeURIComponent(options.siteId) + '/orders', api), {
-          method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(Object.assign(publicPlan ? { plan_public_id: planId } : { plan_id: Number(planId) },
-            { customer: Object.fromEntries(new FormData(form)) })),
-        }).then(function (response) {
-          return response.json().then(function (body) {
-            if (!response.ok || !body.success || !body.data || !body.data.checkout_url) throw new Error(body.message || 'Pesanan belum dapat dibuat.')
-            return body.data
-          })
-        }).then(displayOrder).catch(function (reason) {
-          error.textContent = reason.message || 'Pembayaran belum tersedia. Coba lagi.'
-          submit.disabled = false
-          submit.textContent = 'Lanjutkan ke pembayaran'
-        })
+      var url = new URL('/checkout/embed', checkoutOrigin)
+      url.searchParams.set('site', options.siteId)
+      url.searchParams.set('plan', planId)
+      url.searchParams.set('add_ons', JSON.stringify(addOns))
+      url.searchParams.set('coupon_code', couponCode)
+      var orderId
+      return open({ checkoutUrl: url.toString(), onClose: options.onClose,
+        onCancelled: function () { try { sessionStorage.removeItem(storageKey) } catch {} },
+        onTrial: function (result) {
+          try { sessionStorage.removeItem(storageKey) } catch {}
+          if (typeof options.onTrial === 'function') options.onTrial(result)
+        },
+        onCheckoutLink: function (link, externalOrderId) {
+          orderId = externalOrderId
+          try { sessionStorage.setItem(storageKey, JSON.stringify({ checkout_url: link, external_order_id: orderId })) } catch { /* Storage may be unavailable. */ }
+        },
+        onPaid: function (event) {
+          orderId = orderId || (event && event.externalOrderId)
+          try { sessionStorage.removeItem(storageKey) } catch { /* Storage may be unavailable. */ }
+          document.dispatchEvent(new CustomEvent('paylanggan:paid', { detail: { externalOrderId: orderId } }))
+          if (typeof options.onPaid === 'function') options.onPaid(orderId)
+        },
       })
-      return { close: close }
     }
     var saved = null
-    try { saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null') } catch (_) {}
+    try { saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null') } catch {}
     if (!saved || !saved.checkout_url) return Promise.resolve(showForm())
     var token
     try { token = checkoutToken(saved.checkout_url) }
-    catch (_) { try { sessionStorage.removeItem(storageKey) } catch (_) {} return Promise.resolve(showForm()) }
+    catch { try { sessionStorage.removeItem(storageKey) } catch {} return Promise.resolve(showForm()) }
     return fetch(new URL('/api/v1/checkout/' + encodeURIComponent(token), api), { credentials: 'omit', cache: 'no-store' })
       .then(function (response) { if (!response.ok) throw new Error('Status pesanan belum dapat diperiksa.'); return response.json() })
       .then(function (body) {
-        if (body.data && body.data.invoice_status === 'pending' && ['created', 'active'].indexOf(body.data.checkout_status) !== -1) return displayOrder(saved)
-        try { sessionStorage.removeItem(storageKey) } catch (_) {}
+        if (body.data && ((body.data.invoice_status === 'pending' || body.data.card_registration) && ['created', 'creating', 'active'].indexOf(body.data.checkout_status) !== -1)) return displayOrder(saved)
+        try { sessionStorage.removeItem(storageKey) } catch {}
         return showForm()
       })
   }
 
   var style = document.createElement('style')
   style.textContent = '.pl-dropin-overlay{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(15,23,42,.7)}' +
-    '.pl-dropin-panel{position:relative;width:min(100%,1050px);height:min(92vh,850px);overflow:hidden;border-radius:16px;background:#fff;box-shadow:0 24px 80px rgba(0,0,0,.28)}' +
+    '.pl-dropin-panel{position:relative;width:min(100%,560px);height:min(90dvh,880px);max-height:min(90dvh,880px);overflow:hidden;border-radius:16px;background:#fff;box-shadow:0 24px 80px rgba(0,0,0,.28)}' +
     '.pl-dropin-panel iframe{display:block;width:100%;height:100%;border:0}' +
     '.pl-dropin-controls{position:absolute;top:10px;right:10px;z-index:2;display:flex;align-items:center;gap:8px;padding:4px;border-radius:24px;background:rgba(255,255,255,.97);box-shadow:0 2px 12px rgba(15,23,42,.16)}' +
     '.pl-dropin-close{position:static;display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:#f1f5f9;color:#111827;font:26px/1 system-ui,sans-serif;cursor:pointer}' +
     '.pl-dropin-close:hover{background:#e2e8f0}.pl-dropin-close:focus-visible,.pl-dropin-full-page:focus-visible{outline:2px solid #3155f5;outline-offset:2px}' +
     '.pl-dropin-full-page{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 12px;border-radius:18px;background:#fff;color:#2455eb;font:600 12px system-ui,sans-serif;white-space:nowrap;text-decoration:none}' +
-    '@media(max-width:640px){.pl-dropin-overlay{padding:0}.pl-dropin-panel{height:100vh;width:100%;border-radius:0}}' +
+    '@media(max-width:640px){.pl-dropin-overlay{padding:0}.pl-dropin-panel{height:min(90dvh,880px);width:100%;border-radius:16px}.pl-dropin-overlay{padding:8px}}' +
     '.pl-embed-form-panel{box-sizing:border-box;width:min(100%,460px);max-height:90vh;overflow:auto;border:1px solid rgba(148,163,184,.2);border-radius:22px;background:#fff;padding:24px 28px 26px;color:#172033;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;box-shadow:0 28px 90px rgba(15,23,42,.3)}' +
     '.pl-embed-form-panel *{box-sizing:border-box}.pl-embed-header{display:flex;align-items:center;justify-content:space-between;padding-bottom:20px;border-bottom:1px solid #eef1f6}' +
     '.pl-embed-brand{display:inline-flex;align-items:center;gap:9px;font-size:15px;font-weight:750;letter-spacing:-.03em;color:#111827}.pl-embed-logo{display:block;width:30px;height:30px;object-fit:contain}' +
@@ -211,10 +210,20 @@
   var apiUrl = script.getAttribute('data-pl-api-url')
   if (siteId && apiUrl) {
     document.addEventListener('click', function (event) {
+      var portalButton = event.target && event.target.closest && event.target.closest('[data-pl-portal]')
+      if (portalButton) {
+        event.preventDefault()
+        if (/^pl_site_[A-Za-z0-9_-]+$/.test(siteId)) window.location.assign(new URL('/portal/' + encodeURIComponent(siteId), checkoutOrigin).toString())
+        return
+      }
       var button = event.target && event.target.closest && event.target.closest('[data-pl-checkout]')
       if (!button) return
       event.preventDefault()
-      openEmbed({ siteId: siteId, planId: button.getAttribute('data-pl-plan'), apiUrl: apiUrl }).catch(function (reason) {
+      var selections
+      try { selections = JSON.parse(button.getAttribute('data-pl-add-ons') || '[]') } catch {
+        document.dispatchEvent(new CustomEvent('paylanggan:error', { detail: { message: 'Pilihan add-on tidak valid.' } })); return
+      }
+      Promise.resolve().then(function () { return openEmbed({ siteId: siteId, planId: button.getAttribute('data-pl-plan'), apiUrl: apiUrl, addOns: selections, couponCode: button.getAttribute('data-pl-coupon') || '' }) }).catch(function (reason) {
         document.dispatchEvent(new CustomEvent('paylanggan:error', { detail: { message: reason.message || 'Pembayaran belum tersedia.' } }))
       })
     })
