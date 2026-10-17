@@ -9,11 +9,22 @@ import (
 )
 
 type Config struct {
-	AppName      string
-	AppEnv       string
-	AppPort      string
-	AppPublicURL string
-	APIPublicURL string
+	PublicAssetURL    string
+	InvoiceAssetDir   string
+	EmailDeliveryMode string
+	EmailPreviewDir   string
+	EmailRendererURL  string
+	MailFrom          string
+	SMTPHost          string
+	SMTPPort          string
+	SMTPUsername      string
+	SMTPPassword      string
+	SMTPImplicitTLS   bool
+	AppName           string
+	AppEnv            string
+	AppPort           string
+	AppPublicURL      string
+	APIPublicURL      string
 
 	DBHost     string
 	DBPort     string
@@ -45,11 +56,22 @@ func Load() *Config {
 	_ = godotenv.Load()
 
 	return &Config{
-		AppName:      getEnv("APP_NAME", "PAY-LANGGAN.COM"),
-		AppEnv:       getEnv("APP_ENV", "development"),
-		AppPort:      getEnv("APP_PORT", "8080"),
-		AppPublicURL: getEnv("APP_PUBLIC_URL", "http://localhost:5173"),
-		APIPublicURL: getEnv("API_PUBLIC_URL", "http://localhost:8080"),
+		PublicAssetURL:    getEnv("PUBLIC_ASSET_URL", ""),
+		InvoiceAssetDir:   getEnv("INVOICE_ASSET_DIR", "./storage/invoice-logos"),
+		EmailDeliveryMode: getEnv("EMAIL_DELIVERY_MODE", "disabled"),
+		EmailPreviewDir:   getEnv("EMAIL_PREVIEW_DIR", "../.tmp/email-preview"),
+		EmailRendererURL:  getEnv("EMAIL_RENDERER_URL", ""),
+		MailFrom:          getEnv("MAIL_FROM", ""),
+		SMTPHost:          getEnv("SMTP_HOST", ""),
+		SMTPPort:          getEnv("SMTP_PORT", "587"),
+		SMTPUsername:      getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:      getEnv("SMTP_PASSWORD", ""),
+		SMTPImplicitTLS:   getBool("SMTP_IMPLICIT_TLS", false),
+		AppName:           getEnv("APP_NAME", "PAY-LANGGAN.COM"),
+		AppEnv:            getEnv("APP_ENV", "development"),
+		AppPort:           getEnv("APP_PORT", "8080"),
+		AppPublicURL:      getEnv("APP_PUBLIC_URL", "http://localhost:5173"),
+		APIPublicURL:      getEnv("API_PUBLIC_URL", "http://localhost:8080"),
 
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "5432"),
