@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"pay-langgan/internal/models"
 	"strings"
 	"time"
 
@@ -107,13 +108,78 @@ func (s *MerchantIntegrationService) RevokeEmbedSite(ctx context.Context, busine
 }
 
 type EmbedOrderRequest struct {
-	PlanPublicID string `json:"plan_public_id"`
-	PlanID       int    `json:"plan_id"` // Legacy buttons created before public plan IDs.
+	RequestID    string          `json:"request_id,omitempty"`
+	AddOns       []CheckoutAddOn `json:"add_ons,omitempty"`
+	CouponCode   string          `json:"coupon_code,omitempty"`
+	PlanPublicID string          `json:"plan_public_id"`
+	PlanID       int             `json:"plan_id"` // Legacy buttons created before public plan IDs.
 	Customer     struct {
 		Name   string `json:"name"`
 		Email  string `json:"email"`
 		Mobile string `json:"mobile"`
 	} `json:"customer"`
+}
+
+// Preview is public catalog data only. No customer, order or gateway credentials
+// are created or exposed while a visitor reviews a package.
+type EmbedPlanPreview struct {
+	BusinessName string                           `db:"business_name" json:"business_name"`
+	PlanName     string                           `db:"plan_name" json:"plan_name"`
+	BillingCycle string                           `db:"billing_cycle" json:"billing_cycle"`
+	Amount       float64                          `db:"amount" json:"amount"`
+	TrialDays    int                              `json:"trial_days"`
+	DueNow       float64                          `json:"due_now"`
+	AddOns       []CheckoutAddOnOption            `json:"add_ons"`
+	Items        []models.SubscriptionPreviewItem `json:"items"`
+	CouponCode   string                           `json:"coupon_code,omitempty"`
+}
+
+func (s *MerchantIntegrationService) PreviewEmbedPlan(ctx context.Context, siteID, planID string) (*EmbedPlanPreview, error) {
+	return s.QuoteEmbedPlan(ctx, siteID, planID, nil, "")
+}
+
+func (s *MerchantIntegrationService) QuoteEmbedPlan(ctx context.Context, siteID, planID string, options []CheckoutAddOn, coupon string) (*EmbedPlanPreview, error) {
+	if !strings.HasPrefix(siteID, "pl_site_") || len(siteID) > 64 || len(planID) > 40 {
+		return nil, utils.ErrNotFound
+	}
+	var preview EmbedPlanPreview
+	err := s.db.GetContext(ctx, &preview, `SELECT b.name AS business_name, p.name AS plan_name, p.billing_cycle, p.price AS amount
+ FROM merchant_embed_sites es JOIN businesses b ON b.id=es.business_id
+ JOIN services sv ON sv.business_id=b.id JOIN products pr ON pr.service_id=sv.id JOIN plans p ON p.product_id=pr.id
+ WHERE es.public_id=$1 AND es.revoked_at IS NULL AND b.status='active' AND b.deleted=FALSE AND pr.status='active'
+ AND (p.public_id=$2 OR p.id::text=$2) AND p.billing_cycle IN ('monthly','yearly')`, siteID, planID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, utils.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var owner struct {
+		BusinessID string `db:"business_id"`
+		ProductID  int    `db:"product_id"`
+		TrialDays  int    `db:"trial_days"`
+	}
+	err = s.db.GetContext(ctx, &owner, `SELECT sv.business_id,p.product_id,p.trial_days FROM plans p JOIN products pr ON pr.id=p.product_id JOIN services sv ON sv.id=pr.service_id JOIN merchant_embed_sites es ON es.business_id=sv.business_id WHERE es.public_id=$1 AND (p.public_id=$2 OR p.id::text=$2)`, siteID, planID)
+	if err != nil {
+		return nil, err
+	}
+	plan := checkoutCatalogPlan{ProductID: owner.ProductID, Name: preview.PlanName, Price: preview.Amount, BillingCycle: preview.BillingCycle, TrialDays: owner.TrialDays}
+	preview.Items, preview.Amount, _, err = quoteCheckout(ctx, s.db, owner.BusinessID, plan, options, strings.TrimSpace(coupon), false)
+	if err != nil {
+		return nil, err
+	}
+	preview.TrialDays = owner.TrialDays
+	preview.DueNow = preview.Amount
+	preview.CouponCode = strings.TrimSpace(coupon)
+	if preview.TrialDays > 0 {
+		preview.DueNow = 0
+	}
+	preview.AddOns = []CheckoutAddOnOption{}
+	err = s.db.SelectContext(ctx, &preview.AddOns, `SELECT id,name,price FROM add_ons WHERE product_id=$1 AND billing_cycle=$2 AND visible_in_checkout=TRUE ORDER BY id`, owner.ProductID, preview.BillingCycle)
+	if err != nil {
+		return nil, err
+	}
+	return &preview, nil
 }
 
 // CreateEmbedOrder uses the business integration ID and its catalog. The public site ID
@@ -155,6 +221,14 @@ func (s *MerchantIntegrationService) CreateEmbedOrder(ctx context.Context, publi
 		return nil, err
 	}
 	order := MerchantOrderRequest{ExternalOrderID: "embed_" + reference, PlanID: planID}
+	if request.RequestID != "" {
+		if len(request.RequestID) > 64 || strings.ContainsAny(request.RequestID, "\r\n\t ") {
+			return nil, utils.ErrBadRequest
+		}
+		order.ExternalOrderID = "embed_" + merchantKeyHash(publicID+":"+request.RequestID)
+	}
+	order.AddOns = request.AddOns
+	order.CouponCode = request.CouponCode
 	order.Customer.Name = request.Customer.Name
 	order.Customer.Email = request.Customer.Email
 	order.Customer.Mobile = request.Customer.Mobile

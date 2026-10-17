@@ -130,33 +130,18 @@ export default function IntegrationKeysPage() {
   const activeKeys = keys.filter((key) => !key.revoked_at)
 
   return (
-    <div className="max-w-6xl">
+    <div className="integration-page w-full min-w-0">
       <DashboardPageHeader
         title="Integrasi Website"
         description="Pasang skrip checkout PayLanggan pada website Anda."
       />
 
-      <div className="mb-6 overflow-hidden rounded-2xl border border-white/80 bg-white/75 shadow-sm">
-        <div className="border-b border-slate-200 px-5 pt-5 sm:px-7">
-          <h2 className="font-display text-[19px] font-bold text-ink">Hubungkan PayLanggan ke website</h2>
-          <p className="mt-1 text-[13px] text-body">Pilih cara integrasi sesuai kebutuhan website Anda.</p>
-          <div role="tablist" aria-label="Cara integrasi" className="mt-5 flex gap-6">
-            <button type="button" role="tab" id="dropin-tab" aria-controls="integration-panel" aria-selected={mode === 'dropin'} onClick={() => setMode('dropin')}
-              className={`border-b-[3px] pb-3 text-[13px] font-semibold transition-colors ${mode === 'dropin' ? 'border-brand text-ink' : 'border-transparent text-muted hover:text-ink'}`}>
-              Via skrip drop-in
-            </button>
-            {API_INTEGRATION_ENABLED && (
-              <button type="button" role="tab" id="api-tab" aria-controls="integration-panel" aria-selected={mode === 'api'} onClick={() => setMode('api')}
-                className={`border-b-[3px] pb-3 text-[13px] font-semibold transition-colors ${mode === 'api' ? 'border-brand text-ink' : 'border-transparent text-muted hover:text-ink'}`}>
-                Via API
-              </button>
-            )}
-          </div>
-        </div>
-        <div id="integration-panel" role="tabpanel" aria-labelledby={mode === 'dropin' ? 'dropin-tab' : 'api-tab'} className="p-5 sm:p-7">
-          {mode === 'dropin' ? (
-            <EmbedSitesPanel />
-          ) : (
+      {API_INTEGRATION_ENABLED && <div role="tablist" aria-label="Cara integrasi" className="mb-6 flex gap-4">
+        <button type="button" role="tab" aria-selected={mode === 'dropin'} onClick={() => setMode('dropin')}>Via skrip drop-in</button>
+        <button type="button" role="tab" aria-selected={mode === 'api'} onClick={() => setMode('api')}>Via API</button>
+      </div>}
+      <div className="mb-6">
+          {mode === 'dropin' ? <EmbedSitesPanel /> : (
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
               <div>
                 <h3 className="font-display text-[16px] font-bold text-ink">Integrasi melalui server</h3>
@@ -173,7 +158,6 @@ export default function IntegrationKeysPage() {
               </div>
             </div>
           )}
-        </div>
       </div>
 
       {mode === 'api' && <>
