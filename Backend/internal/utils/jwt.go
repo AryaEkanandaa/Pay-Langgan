@@ -7,14 +7,15 @@ import (
 )
 
 type JWTClaims struct {
-	UserID     int    `json:"user_id"`
-	BusinessID string `json:"business_id"`
-	Email      string `json:"email"`
-	Role       string `json:"role"`
+	UserID          int    `json:"user_id"`
+	BusinessID      string `json:"business_id"`
+	Email           string `json:"email"`
+	Role            string `json:"role"`
+	PasswordVersion int    `json:"password_version,omitempty"`
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(secret string, expiresIn time.Duration, userID int, businessID, email, role string) (string, error) {
+func GenerateToken(secret string, expiresIn time.Duration, userID int, businessID, email, role string, passwordVersion ...int) (string, error) {
 	claims := JWTClaims{
 		UserID:     userID,
 		BusinessID: businessID,
@@ -24,6 +25,9 @@ func GenerateToken(secret string, expiresIn time.Duration, userID int, businessI
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiresIn)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
+	}
+	if len(passwordVersion) > 0 {
+		claims.PasswordVersion = passwordVersion[0]
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

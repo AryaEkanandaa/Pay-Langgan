@@ -35,6 +35,7 @@ func JWTAuth(secret string, skipper Skipper) echo.MiddlewareFunc {
 			c.Set("business_id", claims.BusinessID)
 			c.Set("email", claims.Email)
 			c.Set("role", claims.Role)
+			c.Set("password_version", claims.PasswordVersion)
 
 			return next(c)
 		}

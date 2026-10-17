@@ -78,6 +78,7 @@ func (s *AuthService) Signup(req models.SignupRequest) (*models.AuthResponse, er
 		business.ID,
 		user.Email,
 		user.Role,
+		user.PasswordVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("generate token: %w", err)
@@ -150,6 +151,7 @@ func (s *AuthService) Login(req models.LoginRequest) (*models.LoginResponse, err
 		businessID,
 		user.Email,
 		user.Role,
+		user.PasswordVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("generate token: %w", err)

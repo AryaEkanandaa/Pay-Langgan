@@ -17,7 +17,7 @@ func NewAuthRepository(db *database.DB) *AuthRepository {
 }
 
 func (r *AuthRepository) FindUserByEmail(email string) (*models.User, error) {
-	query := `SELECT id, business_id, name, email, password, role, created_at, updated_at
+	query := `SELECT id, business_id, name, email, password, role, created_at, updated_at, password_version
 		FROM users WHERE email = $1`
 
 	var user models.User
