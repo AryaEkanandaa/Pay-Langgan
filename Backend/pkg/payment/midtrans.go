@@ -79,6 +79,7 @@ func (p *MidtransProvider) CreateSnapTransaction(ctx context.Context, request Mi
 	}
 	body := map[string]any{
 		"transaction_details": map[string]any{"order_id": request.OrderID, "gross_amount": request.Amount},
+		"enabled_payments":    []string{"credit_card"},
 		"credit_card":         map[string]any{"secure": true},
 		"customer_details": map[string]string{
 			"first_name": request.FirstName, "last_name": request.LastName,

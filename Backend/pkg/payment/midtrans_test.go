@@ -20,6 +20,7 @@ func TestCreateSnapTransactionUsesTenantServerKeyAndAmount(t *testing.T) {
 			t.Fatalf("unexpected basic auth user=%q password=%q", user, password)
 		}
 		var payload struct {
+			EnabledPayments    []string `json:"enabled_payments"`
 			TransactionDetails struct {
 				OrderID     string `json:"order_id"`
 				GrossAmount int64  `json:"gross_amount"`
@@ -30,6 +31,9 @@ func TestCreateSnapTransactionUsesTenantServerKeyAndAmount(t *testing.T) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
+		}
+		if len(payload.EnabledPayments) != 1 || payload.EnabledPayments[0] != "credit_card" {
+			t.Fatalf("only credit card must be enabled: %v", payload.EnabledPayments)
 		}
 		if payload.TransactionDetails.OrderID != "invoice_15_abc123" || payload.TransactionDetails.GrossAmount != 100000 || !payload.CreditCard.Secure {
 			t.Fatalf("unexpected transaction payload: %+v", payload)
