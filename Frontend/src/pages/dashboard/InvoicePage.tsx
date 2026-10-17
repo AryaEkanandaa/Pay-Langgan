@@ -1,15 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Copy, Eye, Link2, Printer } from 'lucide-react'
 import DashboardPageHeader from '../../components/dashboard/DashboardPageHeader'
 import Modal from '../../components/ui/Modal'
+import SendEmailButton from '../../components/billing/SendEmailButton'
 import Select from '../../components/ui/Select'
 import SubmitButton from '../../components/ui/SubmitButton'
 import TableSkeleton from '../../components/ui/skeletons/TableSkeleton'
 import { useAuth } from '../../context/AuthContext'
 import {
   ApiError,
+  getInvoiceEmail,
+  previewInvoiceEmail,
+  type InvoiceEmailState,
   createCheckoutLink,
   getInvoice,
+  getMyBusiness,
   listInvoices,
   markInvoicePaid,
   type Invoice,
@@ -18,6 +23,7 @@ import {
   type CheckoutLink,
 } from '../../lib/api'
 import { formatCurrency } from '../../lib/format'
+import { printInvoiceDocument } from '../../lib/printInvoice'
 
 const PAGE_SIZE = 10
 
@@ -46,7 +52,21 @@ export default function InvoicePage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [actionID, setActionID] = useState<number | null>(null)
   const [checkoutLink, setCheckoutLink] = useState<CheckoutLink | null>(null)
+  const [emailState, setEmailState] = useState<InvoiceEmailState | null>(null)
+  const [emailPreview, setEmailPreview] = useState<{subject: string; html: string; logo_warning?: string} | null>(null)
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [emailBusy, setEmailBusy] = useState(false)
+  const [isPrinting, setIsPrinting] = useState(false)
+  const [printError, setPrintError] = useState<string | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
+  const detailRequest = useRef<AbortController | null>(null)
+  useEffect(() => () => detailRequest.current?.abort(), [])
+
+  function closeDetail() {
+    detailRequest.current?.abort()
+    setSelectedInvoice(null)
+    setDetailLoading(false)
+  }
 
   const loadInvoices = useCallback(async () => {
     if (!token) return
@@ -74,17 +94,50 @@ export default function InvoicePage() {
 
   async function openDetail(invoice: Invoice) {
     if (!token) return
+    detailRequest.current?.abort()
+    const controller = new AbortController()
+    detailRequest.current = controller
+    setEmailState(null)
+    setEmailError(null)
+    setEmailPreview(null)
+    setPrintError(null)
     setSelectedInvoice(null)
     setCheckoutLink(null)
     setLinkCopied(false)
     setDetailLoading(true)
     try {
-      setSelectedInvoice(await getInvoice(token, invoice.id))
+      const detail = await getInvoice(token, invoice.id, controller.signal)
+      if (controller.signal.aborted) return
+      setSelectedInvoice(detail)
+      const email = await getInvoiceEmail(token, invoice.id, controller.signal)
+      if (!controller.signal.aborted) setEmailState(email)
     } catch (err) {
+      if (controller.signal.aborted) return
       setError(err instanceof ApiError ? err.message : 'Gagal memuat detail invoice.')
     } finally {
-      setDetailLoading(false)
+      if (!controller.signal.aborted) setDetailLoading(false)
     }
+  }
+
+  async function handleEmailPreview() {
+    if (!token || !selectedInvoice) return
+    setEmailBusy(true)
+    setEmailError(null)
+    try { setEmailPreview(await previewInvoiceEmail(token, selectedInvoice.id)) }
+    catch (err) { setEmailError(err instanceof ApiError ? err.message : 'Gagal memproses email invoice.') }
+    finally { setEmailBusy(false) }
+  }
+
+  async function handlePrint() {
+    if (!token || !selectedInvoice || isPrinting) return
+    setIsPrinting(true)
+    setPrintError(null)
+    try {
+      const business = await getMyBusiness(token)
+      await printInvoiceDocument(selectedInvoice, business)
+    } catch (err) {
+      setPrintError(err instanceof Error ? err.message : 'Gagal menyiapkan cetak invoice.')
+    } finally { setIsPrinting(false) }
   }
 
   async function handleCreateCheckout(invoice: InvoiceDetail) {
@@ -206,6 +259,7 @@ export default function InvoicePage() {
                         <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusInfo.className}`}>
                           {statusInfo.label}
                         </span>
+                        {invoice.status === 'pending' && invoice.checkout_status === 'expired' && <p className="mt-2 text-xs font-medium text-body">Checkout kedaluwarsa</p>}
                       </td>
                       <td className="px-5 py-4 text-right">
                         <button type="button" onClick={() => openDetail(invoice)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-brand hover:underline">
@@ -233,13 +287,14 @@ export default function InvoicePage() {
 
       <Modal
         open={detailLoading || selectedInvoice !== null}
-        onClose={() => setSelectedInvoice(null)}
+        onClose={closeDetail}
         title={selectedInvoice?.invoice_number ?? 'Detail Invoice'}
       >
         {detailLoading ? (
           <p className="text-[13px] text-body">Memuat detail invoice...</p>
         ) : selectedInvoice ? (
           <div className="space-y-5">
+            {selectedInvoice.status === 'pending' && selectedInvoice.checkout_status === 'expired' && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">Checkout sebelumnya sudah kedaluwarsa. Invoice belum lunas; pelanggan dapat melanjutkan pembayaran melalui portal atau tautan pembayaran baru.</p>}
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[13px] text-body">Ditagihkan kepada</p>
@@ -275,6 +330,17 @@ export default function InvoicePage() {
               <div><p className="text-muted">Metode pembayaran</p><p className="mt-1 font-medium capitalize text-ink">{selectedInvoice.payment?.provider || '—'}</p></div>
             </div>
 
+            <section className="rounded-xl border border-border bg-white/30 p-4">
+              <h3 className="text-[14px] font-semibold text-ink">Email invoice</h3>
+              <p className="mt-1 text-[12px] text-muted">{emailState?.mode === 'smtp' ? 'Email dikirim oleh PayLanggan ke alamat pelanggan.' : emailState?.mode === 'preview' ? 'Mode preview: belum ada email yang dikirim ke pelanggan.' : 'Pengiriman email belum diaktifkan.'}</p>
+              {emailState?.delivery && <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 break-words text-[13px] text-body">{{queued: 'Dalam antrean', sending: 'Sedang diproses', sent: 'Terkirim', previewed: 'Preview dibuat (belum dikirim)', failed: 'Pengiriman gagal'}[emailState.delivery.status]} - {emailState.delivery.recipient}</p>}
+              {emailError && <p role="alert" className="mt-2 text-[13px] text-red-600">{emailError}</p>}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <SubmitButton type="button" variant="secondary" disabled={emailBusy} onClick={() => void handleEmailPreview()}>Preview email</SubmitButton>
+                {canMarkPaid && token && <SendEmailButton key={selectedInvoice.id} token={token} invoiceId={selectedInvoice.id} state={emailState} onStateChange={setEmailState} disabled={emailBusy} />}
+              </div>
+              {emailPreview && <div className="mt-4">{emailPreview.logo_warning && <p role="status" className="mb-3 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{emailPreview.logo_warning}</p>}<p className="mb-2 text-[12px] text-body">Subjek: {emailPreview.subject}</p><iframe title="Preview email invoice" sandbox="" srcDoc={emailPreview.html} className="h-[520px] w-full rounded-xl border border-border bg-white" /></div>}
+            </section>
             {checkoutLink && (
               <div className="border-t border-white/40 pt-4">
                 <label htmlFor="checkout-link" className="text-[12px] font-medium text-body">Link pembayaran</label>
@@ -287,9 +353,10 @@ export default function InvoicePage() {
               </div>
             )}
 
+            {printError && <p role="alert" className="text-[13px] text-red-600">{printError}</p>}
             <div className="flex flex-wrap justify-end gap-2 border-t border-white/40 pt-4">
-              <button type="button" onClick={() => window.print()} className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-semibold text-ink">
-                <Printer size={15} /> Cetak
+              <button type="button" onClick={handlePrint} disabled={isPrinting} className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-semibold text-ink disabled:opacity-50">
+                <Printer size={15} /> {isPrinting ? 'Menyiapkan...' : 'Cetak'}
               </button>
               {canMarkPaid && selectedInvoice.status === 'pending' && (
                 <>
