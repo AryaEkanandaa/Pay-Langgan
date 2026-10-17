@@ -1,6 +1,7 @@
 package models
 
 type DashboardSummary struct {
+	RangeStats             *DashboardRangeStats      `json:"range_stats,omitempty"`
 	ActiveCustomers        int                       `json:"active_customers"`
 	ActiveSubscriptions    int                       `json:"active_subscriptions"`
 	MRR                    float64                   `json:"mrr"`
