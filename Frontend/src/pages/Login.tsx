@@ -82,9 +82,9 @@ export default function Login() {
             />
             Ingat saya
           </label>
-          <a href="#" className="font-semibold text-neutral/70 hover:text-neutral">
+          <Link to="/forgot-password" className="font-semibold text-neutral/70 hover:text-neutral">
             Lupa Password?
-          </a>
+          </Link>
         </div>
 
         {error && <p className="text-[13px] text-red-400">{error}</p>}
