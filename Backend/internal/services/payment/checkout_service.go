@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/mail"
 	"net/url"
@@ -21,6 +22,7 @@ import (
 	"pay-langgan/internal/database"
 	"pay-langgan/internal/models"
 	paymentrepo "pay-langgan/internal/repositories/payment"
+	billingsvc "pay-langgan/internal/services/billing"
 	"pay-langgan/internal/utils"
 	provider "pay-langgan/pkg/payment"
 )
@@ -32,14 +34,15 @@ type SessionProvider interface {
 }
 
 type CheckoutService struct {
-	db               *database.DB
-	repo             *paymentrepo.CheckoutRepository
-	provider         SessionProvider
-	publicBaseURL    string
-	returnBaseURL    string
-	ttl              time.Duration
-	autopayEnabled   bool
-	businessGateways businessGatewayResolver
+	db                  *database.DB
+	repo                *paymentrepo.CheckoutRepository
+	provider            SessionProvider
+	publicBaseURL       string
+	returnBaseURL       string
+	ttl                 time.Duration
+	autopayEnabled      bool
+	businessGateways    businessGatewayResolver
+	midtransCardFactory func(*BusinessGatewayRuntime) MidtransCardProvider
 }
 
 type businessGatewayResolver interface {
@@ -212,15 +215,23 @@ func (s *CheckoutService) CreateLink(ctx context.Context, invoiceID int, busines
 }
 
 func (s *CheckoutService) Get(ctx context.Context, token string) (*models.PublicCheckoutResponse, error) {
+	if strings.HasPrefix(token, "trial_") {
+		return s.getTrialCard(ctx, token)
+	}
 	record, err := s.findByToken(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 	status := record.Status
+	items := []models.CheckoutLineItem{}
+	if err := s.db.SelectContext(ctx, &items, `SELECT item_type,description,quantity,subtotal FROM invoice_items WHERE invoice_id=$1 ORDER BY id`, record.InvoiceID); err != nil {
+		return nil, err
+	}
 	if time.Now().UTC().After(record.ExpiresAt) && (status == "created" || status == "failed") {
 		status = "expired"
 	}
 	return &models.PublicCheckoutResponse{
+		Items:         items,
 		InvoiceNumber: record.InvoiceNumber, Amount: record.InvoiceAmount,
 		InvoiceStatus: record.InvoiceStatus, CheckoutStatus: status,
 		CustomerName: record.CustomerName, CustomerEmail: record.DefaultEmail,
@@ -230,6 +241,9 @@ func (s *CheckoutService) Get(ctx context.Context, token string) (*models.Public
 }
 
 func (s *CheckoutService) Start(ctx context.Context, token string, request models.StartCheckoutRequest) (*models.StartCheckoutResponse, error) {
+	if strings.HasPrefix(token, "trial_") {
+		return s.startTrialCard(ctx, token, request)
+	}
 	record, err := s.findByToken(ctx, token)
 	if err != nil {
 		return nil, err
@@ -247,6 +261,17 @@ func (s *CheckoutService) Start(ctx context.Context, token string, request model
 	}
 	if gateway != nil && gateway.Config.Provider != providerName {
 		return nil, fmt.Errorf("%w: the business payment gateway changed after this checkout link was created; create a new link", utils.ErrConflict)
+	}
+	if providerName == "midtrans" && record.CheckoutMode == "CORE" {
+		if gateway == nil || (record.Status != "created" && record.Status != "active") {
+			return nil, fmt.Errorf("%w: card checkout is being verified or unavailable", utils.ErrConflict)
+		}
+		if record.Status == "created" {
+			if err := validateCheckoutContact(request.Name, request.Email, request.Mobile); err != nil {
+				return nil, err
+			}
+		}
+		return coreCheckoutResponse(record, gateway), nil
 	}
 	if record.Status == "active" && record.ProviderSessionID != nil {
 		if record.PaymentLinkURL != nil && *record.PaymentLinkURL != "" {
@@ -324,7 +349,7 @@ func (s *CheckoutService) Start(ctx context.Context, token string, request model
 			var response *provider.XenditSessionResponse
 			response, createErr = checkoutProvider.CreateCardSession(ctx, provider.XenditSessionRequest{
 				ReferenceID: record.ReferenceID, Amount: amount,
-				CustomerReferenceID: fmt.Sprintf("customer_%d", record.CustomerID), CustomerName: name,
+				CustomerReferenceID: fmt.Sprintf("paylanggan_%s_customer_%d", record.BusinessID, record.CustomerID), CustomerName: name,
 				CustomerEmail: email, CustomerMobile: mobile,
 				Description:       fmt.Sprintf("%s - %s", record.InvoiceNumber, record.PlanName),
 				ComponentsOrigins: []string{appURL.Scheme + "://" + appURL.Host},
@@ -455,6 +480,9 @@ func (s *CheckoutService) ProcessWebhook(ctx context.Context, callbackToken stri
 		return false, fmt.Errorf("%w: incomplete Xendit session event", utils.ErrBadRequest)
 	}
 
+	if strings.HasPrefix(event.Data.ReferenceID, "trial_card_") {
+		return s.trialCardWebhook(ctx, "", event)
+	}
 	return s.acceptSessionEvent(ctx, event)
 }
 
@@ -480,6 +508,9 @@ func (s *CheckoutService) ProcessBusinessXenditWebhook(ctx context.Context, webh
 		event.Data.PaymentSessionID == "" || event.Data.ReferenceID == "" {
 		return false, fmt.Errorf("%w: unsupported or incomplete Xendit event", utils.ErrBadRequest)
 	}
+	if strings.HasPrefix(event.Data.ReferenceID, "trial_card_") {
+		return s.trialCardWebhook(ctx, config.BusinessID, event)
+	}
 	var owner string
 	if err := s.db.GetContext(ctx, &owner, `SELECT b.id FROM checkout_sessions cs JOIN invoices i ON i.id=cs.invoice_id
  JOIN subscriptions sub ON sub.id=i.subscription_id JOIN customers c ON c.id=sub.customer_id JOIN businesses b ON b.id=c.business_id
@@ -492,7 +523,9 @@ func (s *CheckoutService) ProcessBusinessXenditWebhook(ctx context.Context, webh
 // ProcessBusinessGatewayWebhook dispatches callbacks using the gateway attached
 // to the opaque webhook ID. Midtrans authenticates each event with its signed
 // notification body; Xendit uses its callback token header.
-func (s *CheckoutService) ProcessBusinessGatewayWebhook(ctx context.Context, webhookID, callbackToken string, payload []byte) (bool, error) {
+func (s *CheckoutService) ProcessBusinessGatewayWebhook(ctx context.Context, webhookID, callbackToken string, payload []byte) (duplicate bool, processErr error) {
+	started := time.Now()
+	defer func() { s.recordBusinessWebhook(ctx, webhookID, payload, duplicate, processErr, started) }()
 	if s.businessGateways == nil {
 		return false, utils.ErrNotFound
 	}
@@ -530,6 +563,11 @@ func (s *CheckoutService) processBusinessMidtransWebhook(ctx context.Context, ga
 		event.OrderID, event.StatusCode, event.GrossAmount, gateway.Config.MidtransServerKey, event.SignatureKey) {
 		return false, utils.ErrUnauthorized
 	}
+	return s.applyMidtransNotification(ctx, gateway, event)
+}
+
+// Used only after a signed webhook or an authenticated Core API response.
+func (s *CheckoutService) applyMidtransNotification(ctx context.Context, gateway *BusinessGatewayRuntime, event midtransNotification) (bool, error) {
 	amount, err := strconv.ParseFloat(event.GrossAmount, 64)
 	if err != nil || amount <= 0 || amount != math.Trunc(amount) {
 		return false, fmt.Errorf("%w: invalid Midtrans transaction amount", utils.ErrBadRequest)
@@ -546,7 +584,14 @@ func (s *CheckoutService) processBusinessMidtransWebhook(ctx context.Context, ga
 	defer tx.Rollback()
 	var invoiceID int
 	if err = tx.GetContext(ctx, &invoiceID, `SELECT invoice_id FROM checkout_sessions WHERE reference_id=$1`, event.OrderID); err != nil {
-		return false, fmt.Errorf("%w: Midtrans checkout not found", utils.ErrBadRequest)
+		if errors.Is(err, sql.ErrNoRows) {
+			// Merchant accounts also receive dashboard test notifications and
+			// orders created outside PayLanggan. Authentication above is required
+			// before acknowledging these without applying any payment effects.
+			slog.Info("midtrans_notification_ignored", "reason", "checkout_not_found")
+			return false, nil
+		}
+		return false, fmt.Errorf("find Midtrans checkout: %w", err)
 	}
 	var lockedInvoiceID int
 	if err = tx.QueryRowContext(ctx, `SELECT id FROM invoices WHERE id=$1 FOR UPDATE`, invoiceID).Scan(&lockedInvoiceID); err != nil {
@@ -616,6 +661,14 @@ func (s *CheckoutService) processBusinessMidtransWebhook(ctx context.Context, ga
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE webhook_events SET processed=TRUE,processed_at=(NOW() AT TIME ZONE 'UTC') WHERE id=$1`, webhookEventID); err != nil {
 		return false, err
+	}
+	if successful {
+		if err = billingsvc.ActivatePaidSubscription(ctx, tx, checkout.InvoiceID); err != nil {
+			return false, err
+		}
+		if err = billingsvc.QueuePaymentConfirmation(ctx, tx, checkout.InvoiceID); err != nil {
+			return false, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return false, err
@@ -732,6 +785,12 @@ func (s *CheckoutService) applySessionEvent(ctx context.Context, tx *sqlx.Tx, ev
 		_, err = tx.ExecContext(ctx, `UPDATE checkout_sessions SET status = 'completed',review_required=FALSE,last_error=NULL, updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1 AND status IN ('active','expired')`, checkout.ID)
 		if err != nil {
 			return fmt.Errorf("complete checkout: %w", err)
+		}
+		if err = billingsvc.ActivatePaidSubscription(ctx, tx, checkout.InvoiceID); err != nil {
+			return err
+		}
+		if err = billingsvc.QueuePaymentConfirmation(ctx, tx, checkout.InvoiceID); err != nil {
+			return err
 		}
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE checkout_sessions SET status = 'expired',review_required=FALSE,last_error=NULL, updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1 AND status = 'active'`, checkout.ID)

@@ -75,6 +75,9 @@ func paymentTestDB(t *testing.T) *database.DB {
 
 func TestCheckoutPostgres(t *testing.T) {
 	db := paymentTestDB(t)
+	if _, err := db.Exec(`UPDATE subscriptions SET status='pending' WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
 	xendit, err := provider.NewXenditProvider("", "callback-secret", "https://api.xendit.co", true)
 	if err != nil {
 		t.Fatal(err)
@@ -144,5 +147,13 @@ func TestCheckoutPostgres(t *testing.T) {
 	_ = db.Get(&events, `SELECT count(*) FROM webhook_events WHERE processed=TRUE`)
 	if methods != 1 || events != 1 {
 		t.Fatalf("methods=%d events=%d", methods, events)
+	}
+	var confirmations int
+	var subscriptionStatus string
+	if err := db.Get(&subscriptionStatus, `SELECT status FROM subscriptions WHERE id=1`); err != nil || subscriptionStatus != "active" {
+		t.Fatalf("Xendit subscription=%s %v", subscriptionStatus, err)
+	}
+	if err := db.Get(&confirmations, `SELECT count(*) FROM checkout_email_deliveries WHERE invoice_id=1 AND event_type='payment_succeeded'`); err != nil || confirmations != 1 {
+		t.Fatalf("Xendit confirmations=%d %v", confirmations, err)
 	}
 }
